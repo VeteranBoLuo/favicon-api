@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A zero-dependency, self-hosted favicon API with safe multi-source fallback.">
+  <meta id="meta-description" name="description" content="零依赖、可自托管的 favicon API，支持安全的多源回退。">
   <meta name="color-scheme" content="dark">
-  <title>favicon-api — fetch any site's icon</title>
+  <title>favicon-api — 一个 URL 获取网站图标</title>
   <style>
     :root {
       --bg: #09090b;
@@ -32,7 +32,7 @@
     a { color: inherit; }
 
     .shell { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
-    header { display: flex; align-items: center; justify-content: space-between; padding: 28px 0; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 28px 0; }
     .brand { display: flex; align-items: center; gap: 11px; font-weight: 760; letter-spacing: -0.02em; }
     .brand-mark {
       display: grid;
@@ -45,7 +45,20 @@
       box-shadow: 0 10px 28px rgba(109, 93, 252, .28);
       font-weight: 900;
     }
-    .github-link { color: var(--muted); font-size: 14px; text-decoration: none; }
+    .header-actions { display: flex; min-width: 0; align-items: center; gap: 16px; }
+    .language-switch { display: flex; min-width: 0; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: rgba(17, 17, 20, .8); }
+    .language-button {
+      min-height: 30px;
+      padding: 0 9px;
+      color: var(--muted);
+      border-radius: 7px;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .language-button:hover { color: var(--text); filter: none; }
+    .language-button.active { color: #fff; background: #302b59; }
+    .github-link { color: var(--muted); font-size: 14px; text-decoration: none; white-space: nowrap; }
     .github-link:hover { color: var(--text); }
 
     main { padding: 72px 0 64px; text-align: center; }
@@ -130,6 +143,10 @@
     footer { padding: 30px 0 42px; color: var(--muted); font-size: 13px; text-align: center; }
 
     @media (max-width: 720px) {
+      header { align-items: flex-start; flex-direction: column; }
+      .header-actions { width: 100%; justify-content: space-between; gap: 10px; }
+      .language-switch { overflow-x: auto; }
+      .language-button { padding-inline: 7px; }
       main { padding-top: 42px; }
       form { grid-template-columns: 1fr; }
       button[type="submit"] { min-height: 50px; }
@@ -145,18 +162,26 @@
   <div class="shell">
     <header>
       <div class="brand"><span class="brand-mark" aria-hidden="true">f</span>favicon-api</div>
-      <a class="github-link" href="https://github.com/VeteranBoLuo/favicon-api">View on GitHub ↗</a>
+      <div class="header-actions">
+        <nav class="language-switch" aria-label="切换语言" data-i18n-aria="languageLabel">
+          <button class="language-button" type="button" data-lang="zh-CN">简体中文</button>
+          <button class="language-button" type="button" data-lang="en">English</button>
+          <button class="language-button" type="button" data-lang="ja">日本語</button>
+          <button class="language-button" type="button" data-lang="ko">한국어</button>
+        </nav>
+        <a class="github-link" href="https://github.com/VeteranBoLuo/favicon-api" data-i18n="githubLink">GitHub ↗</a>
+      </div>
     </header>
 
     <main>
-      <p class="eyebrow">Zero dependencies · Self-hosted</p>
-      <h1>Any site's favicon.<br><span class="gradient">One simple URL.</span></h1>
-      <p class="lede">A small, secure Node.js API that discovers real favicons, rejects fake placeholders, and falls back when sites block bots.</p>
+      <p class="eyebrow" data-i18n="eyebrow">零依赖 · 可自托管</p>
+      <h1 data-i18n-html="heroTitle">任意网站的图标。<br><span class="gradient">只需一个 URL。</span></h1>
+      <p class="lede" data-i18n="lede">一个小巧、安全的 Node.js API：自动发现真实图标，过滤假占位图，并在网站阻止机器人时智能兜底。</p>
 
-      <section class="playground" aria-label="Try the favicon API">
+      <section class="playground" aria-label="体验 favicon API" data-i18n-aria="playgroundLabel">
         <form id="lookup-form">
-          <input id="domain" name="domain" type="text" value="github.com" placeholder="Enter a domain, e.g. github.com" autocomplete="url" aria-label="Website domain" required>
-          <button type="submit">Fetch favicon</button>
+          <input id="domain" name="domain" type="text" value="baidu.com" placeholder="输入域名，例如 baidu.com" autocomplete="url" aria-label="网站域名" data-i18n-placeholder="inputPlaceholder" data-i18n-aria="inputLabel" required>
+          <button type="submit" data-i18n="fetchButton">获取图标</button>
         </form>
         <div class="result" id="result">
           <img id="favicon" alt="">
@@ -164,41 +189,176 @@
             <p class="result-domain" id="result-domain"></p>
             <p class="result-url" id="result-url"></p>
           </div>
-          <button class="copy" id="copy" type="button">Copy URL</button>
+          <button class="copy" id="copy" type="button" data-i18n="copyButton">复制 URL</button>
         </div>
-        <p class="status" id="status" aria-live="polite">Try it with any public website.</p>
+        <p class="status" id="status" aria-live="polite" data-i18n="statusIdle">输入任意公开网站试试看。</p>
       </section>
 
-      <div class="examples" aria-label="Example domains">
+      <div class="examples" aria-label="示例域名" data-i18n-aria="examplesLabel">
+        <button class="example" type="button" data-domain="baidu.com"><img src="?url=baidu.com" alt="">baidu.com</button>
+        <button class="example" type="button" data-domain="bilibili.com"><img src="?url=bilibili.com" alt="">bilibili.com</button>
         <button class="example" type="button" data-domain="github.com"><img src="?url=github.com" alt="">github.com</button>
-        <button class="example" type="button" data-domain="notion.so"><img src="?url=notion.so" alt="">notion.so</button>
-        <button class="example" type="button" data-domain="pexels.com"><img src="?url=pexels.com" alt="">pexels.com</button>
-        <button class="example" type="button" data-domain="openai.com"><img src="?url=openai.com" alt="">openai.com</button>
+        <button class="example" type="button" data-domain="google.com"><img src="?url=google.com" alt="">google.com</button>
       </div>
 
-      <section class="features" aria-label="Features">
+      <section class="features" aria-label="功能" data-i18n-aria="featuresLabel">
         <article class="feature">
-          <span class="feature-kicker">01 / resilient</span>
-          <h2>Multi-source fallback</h2>
-          <p>Discover the best icon in the page, try the conventional path, then use public fallback sources.</p>
+          <span class="feature-kicker" data-i18n="feature1Kicker">01 / 稳定</span>
+          <h2 data-i18n="feature1Title">多源智能兜底</h2>
+          <p data-i18n="feature1Body">优先发现页面声明的最佳图标，再尝试标准路径，最后使用公共图标源。</p>
         </article>
         <article class="feature">
-          <span class="feature-kicker">02 / trustworthy</span>
-          <h2>Real-image validation</h2>
-          <p>Reject HTML responses, 1×1 pixels, and known default placeholders before returning a result.</p>
+          <span class="feature-kicker" data-i18n="feature2Kicker">02 / 可信</span>
+          <h2 data-i18n="feature2Title">真实图片校验</h2>
+          <p data-i18n="feature2Body">返回结果前过滤 HTML 假图、1×1 像素和已知的服务商默认占位图。</p>
         </article>
         <article class="feature">
-          <span class="feature-kicker">03 / safe</span>
-          <h2>SSRF protection</h2>
-          <p>Block private and reserved addresses, including redirect destinations, before every request.</p>
+          <span class="feature-kicker" data-i18n="feature3Kicker">03 / 安全</span>
+          <h2 data-i18n="feature3Title">SSRF 防护</h2>
+          <p data-i18n="feature3Body">每次请求前拦截内网和保留地址，并逐跳检查所有重定向目的地。</p>
         </article>
       </section>
     </main>
 
-    <footer>MIT licensed · Built with Node.js built-ins only</footer>
+    <footer data-i18n="footer">MIT 许可证 · 仅使用 Node.js 内置模块构建</footer>
   </div>
 
   <script>
+    const translations = {
+      'zh-CN': {
+        title: 'favicon-api — 一个 URL 获取网站图标',
+        description: '零依赖、可自托管的 favicon API，支持安全的多源回退。',
+        languageLabel: '切换语言',
+        githubLink: 'GitHub ↗',
+        eyebrow: '零依赖 · 可自托管',
+        heroTitle: '任意网站的图标。<br><span class="gradient">只需一个 URL。</span>',
+        lede: '一个小巧、安全的 Node.js API：自动发现真实图标，过滤假占位图，并在网站阻止机器人时智能兜底。',
+        playgroundLabel: '体验 favicon API',
+        inputPlaceholder: '输入域名，例如 baidu.com',
+        inputLabel: '网站域名',
+        fetchButton: '获取图标',
+        copyButton: '复制 URL',
+        copied: '已复制',
+        statusIdle: '输入任意公开网站试试看。',
+        statusLoading: '正在获取图标…',
+        statusSuccess: '已找到图标，可以直接在图片标签中使用这个 URL。',
+        statusError: '没有找到图标，请尝试其他公开网站。',
+        copyError: '复制失败，请手动选择上方 URL。',
+        iconAlt: '{domain} 网站图标',
+        examplesLabel: '示例域名',
+        featuresLabel: '功能',
+        feature1Kicker: '01 / 稳定',
+        feature1Title: '多源智能兜底',
+        feature1Body: '优先发现页面声明的最佳图标，再尝试标准路径，最后使用公共图标源。',
+        feature2Kicker: '02 / 可信',
+        feature2Title: '真实图片校验',
+        feature2Body: '返回结果前过滤 HTML 假图、1×1 像素和已知的服务商默认占位图。',
+        feature3Kicker: '03 / 安全',
+        feature3Title: 'SSRF 防护',
+        feature3Body: '每次请求前拦截内网和保留地址，并逐跳检查所有重定向目的地。',
+        footer: 'MIT 许可证 · 仅使用 Node.js 内置模块构建',
+      },
+      en: {
+        title: "favicon-api — fetch any site's icon",
+        description: 'A zero-dependency, self-hosted favicon API with safe multi-source fallback.',
+        languageLabel: 'Change language',
+        githubLink: 'View on GitHub ↗',
+        eyebrow: 'Zero dependencies · Self-hosted',
+        heroTitle: "Any site's favicon.<br><span class=\"gradient\">One simple URL.</span>",
+        lede: 'A small, secure Node.js API that discovers real favicons, rejects fake placeholders, and falls back when sites block bots.',
+        playgroundLabel: 'Try the favicon API',
+        inputPlaceholder: 'Enter a domain, e.g. github.com',
+        inputLabel: 'Website domain',
+        fetchButton: 'Fetch favicon',
+        copyButton: 'Copy URL',
+        copied: 'Copied',
+        statusIdle: 'Try it with any public website.',
+        statusLoading: 'Fetching favicon…',
+        statusSuccess: 'Favicon found. Use the URL directly in an image tag.',
+        statusError: 'No favicon found. Try another public website.',
+        copyError: 'Copy failed. Select the URL above manually.',
+        iconAlt: '{domain} favicon',
+        examplesLabel: 'Example domains',
+        featuresLabel: 'Features',
+        feature1Kicker: '01 / resilient',
+        feature1Title: 'Multi-source fallback',
+        feature1Body: 'Discover the best icon in the page, try the conventional path, then use public fallback sources.',
+        feature2Kicker: '02 / trustworthy',
+        feature2Title: 'Real-image validation',
+        feature2Body: 'Reject HTML responses, 1×1 pixels, and known default placeholders before returning a result.',
+        feature3Kicker: '03 / safe',
+        feature3Title: 'SSRF protection',
+        feature3Body: 'Block private and reserved addresses, including redirect destinations, before every request.',
+        footer: 'MIT licensed · Built with Node.js built-ins only',
+      },
+      ja: {
+        title: 'favicon-api — URL 一つでサイトアイコンを取得',
+        description: '依存ゼロでセルフホスト可能。安全な多段フォールバックを備えた favicon API。',
+        languageLabel: '言語を切り替える',
+        githubLink: 'GitHub で見る ↗',
+        eyebrow: '依存ゼロ · セルフホスト',
+        heroTitle: 'あらゆるサイトの favicon。<br><span class="gradient">必要なのは URL 一つ。</span>',
+        lede: '実際の favicon を自動検出し、偽のプレースホルダを除外。対象サイトにブロックされた場合も安全にフォールバックします。',
+        playgroundLabel: 'favicon API を試す',
+        inputPlaceholder: 'ドメインを入力（例: yahoo.co.jp）',
+        inputLabel: 'ウェブサイトのドメイン',
+        fetchButton: 'favicon を取得',
+        copyButton: 'URL をコピー',
+        copied: 'コピー済み',
+        statusIdle: '公開ウェブサイトで試してみてください。',
+        statusLoading: 'favicon を取得中…',
+        statusSuccess: 'favicon が見つかりました。この URL を画像タグで直接利用できます。',
+        statusError: 'favicon が見つかりません。別の公開サイトをお試しください。',
+        copyError: 'コピーできませんでした。上の URL を手動で選択してください。',
+        iconAlt: '{domain} の favicon',
+        examplesLabel: 'ドメイン例',
+        featuresLabel: '機能',
+        feature1Kicker: '01 / 安定',
+        feature1Title: '多段フォールバック',
+        feature1Body: 'ページ内の最適なアイコン、標準パス、公開アイコンソースの順に取得します。',
+        feature2Kicker: '02 / 信頼',
+        feature2Title: '実画像の検証',
+        feature2Body: 'HTML、1×1 ピクセル、既知の既定プレースホルダを返却前に除外します。',
+        feature3Kicker: '03 / 安全',
+        feature3Title: 'SSRF 対策',
+        feature3Body: '各リクエストとリダイレクト先で、プライベート・予約済みアドレスを遮断します。',
+        footer: 'MIT ライセンス · Node.js 標準モジュールのみで構築',
+      },
+      ko: {
+        title: 'favicon-api — URL 하나로 사이트 아이콘 가져오기',
+        description: '의존성 없이 셀프 호스팅할 수 있고 안전한 다중 폴백을 지원하는 favicon API.',
+        languageLabel: '언어 변경',
+        githubLink: 'GitHub에서 보기 ↗',
+        eyebrow: '의존성 제로 · 셀프 호스팅',
+        heroTitle: '모든 사이트의 favicon.<br><span class="gradient">URL 하나면 충분합니다.</span>',
+        lede: '실제 favicon을 자동으로 찾고 가짜 플레이스홀더를 거르며, 대상 사이트가 봇을 차단해도 안전하게 폴백합니다.',
+        playgroundLabel: 'favicon API 체험',
+        inputPlaceholder: '도메인 입력 (예: naver.com)',
+        inputLabel: '웹사이트 도메인',
+        fetchButton: 'favicon 가져오기',
+        copyButton: 'URL 복사',
+        copied: '복사됨',
+        statusIdle: '공개 웹사이트를 입력해 보세요.',
+        statusLoading: 'favicon을 가져오는 중…',
+        statusSuccess: 'favicon을 찾았습니다. 이 URL을 이미지 태그에서 바로 사용할 수 있습니다.',
+        statusError: 'favicon을 찾지 못했습니다. 다른 공개 웹사이트를 시도해 주세요.',
+        copyError: '복사하지 못했습니다. 위 URL을 직접 선택해 주세요.',
+        iconAlt: '{domain} favicon',
+        examplesLabel: '예시 도메인',
+        featuresLabel: '기능',
+        feature1Kicker: '01 / 안정성',
+        feature1Title: '다중 소스 폴백',
+        feature1Body: '페이지의 최적 아이콘, 표준 경로, 공개 아이콘 소스 순서로 가져옵니다.',
+        feature2Kicker: '02 / 신뢰성',
+        feature2Title: '실제 이미지 검증',
+        feature2Body: 'HTML 응답, 1×1 픽셀, 알려진 기본 플레이스홀더를 반환 전에 거릅니다.',
+        feature3Kicker: '03 / 안전',
+        feature3Title: 'SSRF 방어',
+        feature3Body: '모든 요청과 리다이렉트 목적지에서 사설 및 예약 주소를 차단합니다.',
+        footer: 'MIT 라이선스 · Node.js 내장 모듈만 사용',
+      },
+    };
+
     const form = document.querySelector('#lookup-form');
     const input = document.querySelector('#domain');
     const result = document.querySelector('#result');
@@ -207,7 +367,59 @@
     const resultUrl = document.querySelector('#result-url');
     const status = document.querySelector('#status');
     const copyButton = document.querySelector('#copy');
+    const metaDescription = document.querySelector('#meta-description');
     let currentApiUrl = '';
+    let currentLanguage = 'zh-CN';
+    let currentStatusKey = 'statusIdle';
+
+    function normalizeLanguage(language) {
+      const value = (language || '').toLowerCase();
+      if (value.startsWith('zh')) return 'zh-CN';
+      if (value.startsWith('ja')) return 'ja';
+      if (value.startsWith('ko')) return 'ko';
+      if (value.startsWith('en')) return 'en';
+      return 'zh-CN';
+    }
+
+    function getStoredLanguage() {
+      try { return window.localStorage.getItem('favicon-api-language'); } catch { return null; }
+    }
+
+    function rememberLanguage(language) {
+      try { window.localStorage.setItem('favicon-api-language', language); } catch { /* Storage may be disabled. */ }
+    }
+
+    function t(key) {
+      return translations[currentLanguage][key] || translations['zh-CN'][key] || key;
+    }
+
+    function applyLanguage(language, remember = false) {
+      currentLanguage = normalizeLanguage(language);
+      const dictionary = translations[currentLanguage];
+      document.documentElement.lang = currentLanguage;
+      document.title = dictionary.title;
+      metaDescription.content = dictionary.description;
+      document.querySelectorAll('[data-i18n]').forEach((element) => {
+        element.textContent = dictionary[element.dataset.i18n];
+      });
+      document.querySelectorAll('[data-i18n-html]').forEach((element) => {
+        element.innerHTML = dictionary[element.dataset.i18nHtml];
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach((element) => {
+        element.placeholder = dictionary[element.dataset.i18nPlaceholder];
+      });
+      document.querySelectorAll('[data-i18n-aria]').forEach((element) => {
+        element.setAttribute('aria-label', dictionary[element.dataset.i18nAria]);
+      });
+      document.querySelectorAll('[data-lang]').forEach((button) => {
+        const active = button.dataset.lang === currentLanguage;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      status.textContent = t(currentStatusKey);
+      if (currentApiUrl) favicon.alt = t('iconAlt').replace('{domain}', resultDomain.textContent);
+      if (remember) rememberLanguage(currentLanguage);
+    }
 
     function apiUrlFor(domain) {
       const url = new URL(window.location.href);
@@ -223,13 +435,24 @@
       currentApiUrl = apiUrlFor(value);
       resultDomain.textContent = value;
       resultUrl.textContent = currentApiUrl;
-      favicon.alt = `${value} favicon`;
-      status.textContent = 'Fetching favicon…';
+      favicon.alt = t('iconAlt').replace('{domain}', value);
+      currentStatusKey = 'statusLoading';
+      status.textContent = t(currentStatusKey);
       result.classList.add('visible');
-      favicon.onload = () => { status.textContent = 'Favicon found. Use the URL directly in an image tag.'; };
-      favicon.onerror = () => { status.textContent = 'No favicon found. Try another public website.'; };
+      favicon.onload = () => {
+        currentStatusKey = 'statusSuccess';
+        status.textContent = t(currentStatusKey);
+      };
+      favicon.onerror = () => {
+        currentStatusKey = 'statusError';
+        status.textContent = t(currentStatusKey);
+      };
       favicon.src = `${currentApiUrl}&t=${Date.now()}`;
     }
+
+    document.querySelectorAll('[data-lang]').forEach((button) => {
+      button.addEventListener('click', () => applyLanguage(button.dataset.lang, true));
+    });
 
     form.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -243,12 +466,16 @@
     copyButton.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(currentApiUrl);
-        copyButton.textContent = 'Copied';
-        window.setTimeout(() => { copyButton.textContent = 'Copy URL'; }, 1400);
+        copyButton.textContent = t('copied');
+        window.setTimeout(() => { copyButton.textContent = t('copyButton'); }, 1400);
       } catch {
-        status.textContent = 'Copy failed. Select the URL above manually.';
+        currentStatusKey = 'copyError';
+        status.textContent = t(currentStatusKey);
       }
     });
+
+    const preferredLanguage = getStoredLanguage() || navigator.languages?.[0] || navigator.language || 'zh-CN';
+    applyLanguage(preferredLanguage);
   </script>
 </body>
 </html>

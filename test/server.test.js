@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { after, before, test } from "node:test";
 import { handle } from "../src/index.js";
@@ -20,7 +21,76 @@ test("serves the interactive demo", async () => {
   const response = await fetch(baseUrl);
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type"), /^text\/html/);
-  assert.match(await response.text(), /Any site's favicon/);
+  const html = await response.text();
+  assert.match(html, /任意网站的图标/);
+  for (const language of ["zh-CN", "en", "ja", "ko"]) {
+    assert.match(html, new RegExp(`data-lang="${language}"`));
+  }
+});
+
+test("embedded demo script parses", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+  assert.ok(script);
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test("language switch defaults to Chinese and can select English", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+  const makeElement = (dataset = {}) => ({
+    dataset,
+    textContent: "",
+    innerHTML: "",
+    value: "baidu.com",
+    classList: { add() {}, toggle() {} },
+    attributes: {},
+    listeners: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener(name, listener) { this.listeners[name] = listener; },
+  });
+  const elements = {
+    "#lookup-form": makeElement(),
+    "#domain": makeElement({ i18nPlaceholder: "inputPlaceholder", i18nAria: "inputLabel" }),
+    "#result": makeElement(),
+    "#favicon": makeElement(),
+    "#result-domain": makeElement(),
+    "#result-url": makeElement(),
+    "#status": makeElement({ i18n: "statusIdle" }),
+    "#copy": makeElement({ i18n: "copyButton" }),
+    "#meta-description": makeElement(),
+  };
+  const heading = makeElement({ i18nHtml: "heroTitle" });
+  const languageNav = makeElement({ i18nAria: "languageLabel" });
+  const languageButtons = ["zh-CN", "en", "ja", "ko"].map((language) => makeElement({ lang: language }));
+  const document = {
+    documentElement: { lang: "" },
+    title: "",
+    querySelector(selector) { return elements[selector]; },
+    querySelectorAll(selector) {
+      return {
+        "[data-i18n]": [elements["#status"], elements["#copy"]],
+        "[data-i18n-html]": [heading],
+        "[data-i18n-placeholder]": [elements["#domain"]],
+        "[data-i18n-aria]": [languageNav, elements["#domain"]],
+        "[data-lang]": languageButtons,
+        ".example": [],
+      }[selector] || [];
+    },
+  };
+  const window = {
+    location: { href: "https://example.com/favimg/" },
+    localStorage: { getItem() { return null; }, setItem() {} },
+    setTimeout() {},
+  };
+  const navigator = { languages: ["zh-CN"], language: "zh-CN", clipboard: {} };
+
+  new Function("document", "window", "navigator", script)(document, window, navigator);
+  assert.equal(document.documentElement.lang, "zh-CN");
+  assert.match(heading.innerHTML, /只需一个 URL/);
+  languageButtons[1].listeners.click();
+  assert.equal(document.documentElement.lang, "en");
+  assert.match(heading.innerHTML, /One simple URL/);
 });
 
 test("serves health checks behind a path prefix", async () => {
