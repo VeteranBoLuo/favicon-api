@@ -2,61 +2,83 @@
 
 # favicon-api
 
-**一行 URL,拿到任意网站的 favicon。**
+**Any site's favicon. One simple URL.**
 
-<img src="https://img.shields.io/github/stars/VeteranBoLuo/favicon-api?style=for-the-badge&color=615ced" alt="stars">
-<img src="https://img.shields.io/badge/Node.js-%E2%89%A518-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node">
-<img src="https://img.shields.io/badge/dependencies-0-brightgreen?style=for-the-badge" alt="zero dependency">
-<img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT">
+[![CI](https://github.com/VeteranBoLuo/favicon-api/actions/workflows/ci.yml/badge.svg)](https://github.com/VeteranBoLuo/favicon-api/actions/workflows/ci.yml)
+![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)
+![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<a href="https://boluo66.top/favimg/?url=github.com"><img src="https://img.shields.io/badge/🚀_在线_Demo-615ced?style=for-the-badge&logoColor=white" alt="demo"></a>
+[**Try the live API →**](https://boluo66.top/favimg/?url=github.com)
 
-简体中文 | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 </div>
 
 ---
 
-一个零依赖的 Node.js favicon 获取服务。给它一个域名,返回该网站的图标——**连 Cloudflare 类强反爬站点也能拿到真实图标**。
+A small, self-hosted Node.js API that discovers real website icons, rejects fake placeholders, and falls back to public icon sources when direct requests fail.
 
-```bash
-curl "https://boluo66.top/favimg/?url=github.com" -o github.png
+```html
+<img src="https://boluo66.top/favimg/?url=github.com" alt="GitHub">
 ```
 
-## ✨ 特性
+<div align="center">
+  <img src="https://boluo66.top/favimg/?url=github.com" width="56" height="56" alt="GitHub favicon">&nbsp;&nbsp;
+  <img src="https://boluo66.top/favimg/?url=notion.so" width="56" height="56" alt="Notion favicon">&nbsp;&nbsp;
+  <img src="https://boluo66.top/favimg/?url=pexels.com" width="56" height="56" alt="Pexels favicon">&nbsp;&nbsp;
+  <img src="https://boluo66.top/favimg/?url=openai.com" width="56" height="56" alt="OpenAI favicon">
+</div>
 
-- 🎯 **一个请求搞定** —— `/?url=example.com` 直接返回图标,裸域名自动补 `https://`
-- 🧩 **多级兜底** —— 抓网页 `<link rel=icon>` → 退回 `/favicon.ico` → 公网聚合源;目标站强反爬(403)也能拿到真 logo
-- ✅ **图标有效性校验** —— 按文件头(magic bytes)识别真图,**拒绝 1×1 透明占位、HTML 假图、聚合源的默认占位**(很多 favicon 服务栽在这)
-- 🛡️ **SSRF 防护** —— 解析主机所有 IP,拦截内网 / 回环 / 云元数据(`169.254.169.254`);每一跳重定向都重新校验
-- ⚡ **快** —— 抓取超时分级(网页 4s / 图片 6s,慢站快速降级)+ 内存缓存(1h TTL)+ 内容哈希 ETag(命中即 304)
-- 📦 **零依赖** —— 只用 Node 内置模块,`node src/index.js` 即可跑
+## Why favicon-api?
 
-## 🚀 快速开始
+- **One request** — `/?url=github.com` returns an image; bare domains automatically use HTTPS.
+- **Resilient discovery** — page icon metadata → `/favicon.ico` → public fallback sources.
+- **Real-image validation** — rejects HTML responses, 1×1 pixels, and known provider placeholders.
+- **SSRF protection** — blocks private and reserved addresses before the initial request and every redirect hop.
+- **HTTP caching** — in-memory TTL cache, bounded eviction, content-based ETags, and `304` responses.
+- **Zero dependencies** — runs on Node.js built-ins with no install or build step.
+
+## Quick start
 
 ```bash
 git clone https://github.com/VeteranBoLuo/favicon-api.git
 cd favicon-api
-npm start          # 默认 http://localhost:3456
+npm start
 ```
+
+Open <http://localhost:3456> for the interactive playground, or request an icon directly:
 
 ```bash
-curl "http://localhost:3456/?url=github.com" -o github.png
+curl "http://localhost:3456/?url=github.com" -o github.svg
 ```
 
-在线体验:<https://boluo66.top/favimg/?url=github.com>
+### Docker
 
-## 📖 API
+```bash
+docker build -t favicon-api .
+docker run --rm -p 3456:3456 favicon-api
+```
 
-### `GET /?url=<domain>&size=<n>`
+## API
 
-| 参数 | 说明 |
-|------|------|
-| `url` | 域名或完整 URL(如 `github.com`、`https://github.com/x`);裸域名自动补 `https://` |
-| `size` | 可选,期望尺寸(像素),仅作提示回写到响应头 |
+### `GET /?url=<domain-or-url>`
 
-- **成功**:返回图片二进制,带 `Content-Type: image/*`、`Cache-Control`、`ETag`;命中 `If-None-Match` 返回 `304`
-- **失败**:返回 JSON `{ "error": "..." }`,状态码 `403`(拒绝内网/被拒) / `404`(无法解析) / `502`(上游失败)
+```text
+https://boluo66.top/favimg/?url=github.com
+https://boluo66.top/favimg/?url=https%3A%2F%2Fgithub.com%2Fopenai
+```
+
+Successful responses contain the image binary and these useful headers:
+
+| Header | Description |
+| --- | --- |
+| `Content-Type` | Detected image type |
+| `Cache-Control` | Browser and CDN cache policy |
+| `ETag` | Content-based validator; supports `If-None-Match` |
+| `X-Favicon-Source` | Final source URL after redirects or fallback |
+
+Errors use JSON: `{ "error": "..." }` with `400`, `403`, `404`, or `502` status codes.
 
 ### `GET /health`
 
@@ -64,23 +86,29 @@ curl "http://localhost:3456/?url=github.com" -o github.png
 { "status": "ok" }
 ```
 
-## ⚙️ 工作原理
+## How it works
 
-1. 抓目标站 HTML,按优先级 + 尺寸解析出最佳 `<link rel="icon">`;拿不到就退回 `<origin>/favicon.ico`
-2. **校验抓到的确实是图片**(PNG/ICO/JPEG/GIF/WebP/SVG 文件头),并排除 1×1 占位
-3. 直连失败(强反爬 403 / 无 favicon / 超时)→ **兜底公网图标聚合源**,并按内容哈希跳过其"没有 logo 时的默认占位图"
-4. 结果进内存缓存(条目上限 LRU 淘汰 + 1h TTL),配内容哈希 ETag 支持 304 协商缓存
+1. Normalize the input URL and reject private or reserved destinations.
+2. Fetch the page with a short timeout and manually validate every redirect destination.
+3. Select the best icon declared by the page, otherwise try `/favicon.ico`.
+4. Validate the image signature and reject tiny or known placeholder images.
+5. Try public fallback sources when direct discovery fails, then cache the valid result.
 
-## 🛠️ 部署
+## Security and privacy
+
+This service fetches user-supplied public URLs. It blocks private, loopback, link-local, documentation, and other reserved address ranges; limits redirect hops and response sizes; and re-checks each redirect destination. DNS rebinding cannot be eliminated completely without pinning DNS resolution to the outbound connection, so use additional egress controls for high-trust production environments.
+
+Fallback requests may send the requested hostname to `favicone.com` or Yandex. Remove or replace `AGGREGATOR_BUILDERS` in [`src/favicon.js`](src/favicon.js) if your environment must avoid third-party services.
+
+## Development
 
 ```bash
-node src/index.js
-# 或指定端口
-PORT=8080 node src/index.js
+npm test
+npm run check
 ```
 
-任意进程守护(pm2 / systemd / docker)都可,零依赖、无需构建。
+Contributions and reproducible edge cases are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 📄 License
+## License
 
 [MIT](LICENSE) © VeteranBoLuo

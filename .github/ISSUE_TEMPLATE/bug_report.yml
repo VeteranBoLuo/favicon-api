@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible favicon lookup problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve favicon-api. Never include private URLs or credentials.
+  - type: input
+    id: domain
+    attributes:
+      label: Public domain or URL
+      placeholder: example.com
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the request and the response status, headers, or error body.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Live demo
+        - Local Node.js
+        - Docker
+        - Other self-hosted environment
+    validations:
+      required: true

@@ -1,13 +1,17 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { getFavicon, generateETag } from "./favicon.js";
 
 const PORT = parseInt(process.env.PORT || "3456", 10);
+const DEMO_HTML = readFileSync(new URL("../public/index.html", import.meta.url));
 
-const server = createServer(async (req, res) => {
-  // CORS — allow all origins
+export async function handle(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "If-None-Match");
   res.setHeader("Access-Control-Max-Age", "86400");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -16,43 +20,42 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method !== "GET") {
-    res.writeHead(405, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Method not allowed" }));
+    sendJson(res, 405, { error: "Method not allowed" });
     return;
   }
 
-  // Health check
-  if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok" }));
+  const parsedUrl = new URL(req.url, "http://localhost");
+
+  // Accept /health as well as a reverse-proxy mount such as /favimg/health.
+  if (parsedUrl.pathname === "/health" || parsedUrl.pathname.endsWith("/health")) {
+    sendJson(res, 200, { status: "ok" });
     return;
   }
 
-  // Favicon route: ?url=domain&size=N
-  const parsedUrl = new URL(req.url, `http://localhost`);
   const domain = (parsedUrl.searchParams.get("url") || "").trim();
-  const size = parseInt(parsedUrl.searchParams.get("size") || "0", 10) || 0;
-
   if (domain) {
-    return serveFavicon(req, res, domain, size);
-  }
-
-  // 404
-  res.setHeader("Content-Type", "application/json");
-  res.writeHead(404);
-  res.end(JSON.stringify({ error: "Usage: ?url=example.com" }));
-});
-
-async function serveFavicon(req, res, domain, size) {
-  if (!domain) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Missing domain. Usage: ?url=example.com" }));
+    await serveFavicon(req, res, domain);
     return;
   }
 
+  // The same handler can be mounted at / or behind a prefix such as /favimg/.
+  if (!parsedUrl.search) {
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Length": DEMO_HTML.length,
+      "Cache-Control": "public, max-age=300",
+      "Content-Security-Policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'self'",
+    });
+    res.end(DEMO_HTML);
+    return;
+  }
+
+  sendJson(res, 400, { error: "Missing url parameter. Usage: ?url=example.com" });
+}
+
+async function serveFavicon(req, res, domain) {
   if (domain.length > 512 || domain.includes("\n") || domain.includes("\r")) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Invalid domain" }));
+    sendJson(res, 400, { error: "Invalid URL" });
     return;
   }
 
@@ -60,37 +63,41 @@ async function serveFavicon(req, res, domain, size) {
     const result = await getFavicon(domain);
     const etag = generateETag(result.buffer);
 
-    // 内容未变则命中协商缓存,直接 304 空响应(配合按内容哈希的 ETag 才有意义)
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("ETag", etag);
+
     if (req.headers["if-none-match"] === etag) {
       res.writeHead(304);
       res.end();
       return;
     }
 
-    res.setHeader("Content-Type", result.contentType);
-    res.setHeader("Content-Length", result.buffer.length);
-    res.setHeader("Cache-Control", "public, max-age=3600");
-    res.setHeader("ETag", etag);
-    res.setHeader("X-Favicon-Source", result.sourceUrl);
-    if (size > 0) {
-      res.setHeader("X-Favicon-Size", size);
-    }
-    res.writeHead(200);
+    res.writeHead(200, {
+      "Content-Type": result.contentType,
+      "Content-Length": result.buffer.length,
+      "X-Favicon-Source": result.sourceUrl,
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    });
     res.end(result.buffer);
-  } catch (err) {
-    const message = err.message || "Failed to fetch favicon";
-    const status = message.includes("拒绝访问") ? 403
-      : message.includes("无法解析") || message.includes("Not Found") || message.includes("Enotfound") ? 404
+  } catch (error) {
+    const message = error.message || "Failed to fetch favicon";
+    const status = error.code === "PRIVATE_ADDRESS" ? 403
+      : error.code === "INVALID_URL" ? 400
+      : error.code === "DNS_ERROR" ? 404
       : 502;
-
-    res.setHeader("Content-Type", "application/json");
-    res.writeHead(status);
-    res.end(JSON.stringify({ error: message }));
+    sendJson(res, status, { error: message });
   }
 }
 
-export const handle = server.listeners('request')[0];
-if (import.meta.url === `file://${process.argv[1]}`) server.listen(PORT, () => {
-  console.log(`favicon-api running at http://localhost:${PORT}`);
-  console.log(`Try: http://localhost:${PORT}/?url=github.com`);
-});
+function sendJson(res, status, body) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(body));
+}
+
+const server = createServer(handle);
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  server.listen(PORT, () => {
+    console.log(`favicon-api running at http://localhost:${PORT}`);
+  });
+}
