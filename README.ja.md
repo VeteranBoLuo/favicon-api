@@ -65,6 +65,14 @@ curl "http://localhost:3456/?url=github.com" -o github.png
 { "status": "ok" }
 ```
 
+### `GET /stats`
+
+成功した favicon リクエスト数を返します。体験ページが自動表示するサンプルは集計しません。
+
+```json
+{ "count": 12001 }
+```
+
 ## ⚙️ 仕組み
 
 1. 対象の HTML を取得し、優先度 + サイズで最適な `<link rel="icon">` を解析。取れなければ `<origin>/favicon.ico` にフォールバック
@@ -78,6 +86,10 @@ curl "http://localhost:3456/?url=github.com" -o github.png
 node src/index.js
 # ポート指定
 PORT=8080 node src/index.js
+
+# 利用回数を再起動後も保持し、既存の実数を初期値に設定
+FAVICON_USAGE_COUNT_FILE=./data/usage-count.json \
+FAVICON_USAGE_COUNT_START=12000 node src/index.js
 ```
 
 pm2 / systemd / docker など任意のプロセス管理で動作。依存ゼロ、ビルド不要。

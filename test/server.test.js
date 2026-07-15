@@ -58,6 +58,8 @@ test("language switch follows the browser language and can select English", () =
     "#result-url": makeElement(),
     "#status": makeElement({ i18n: "statusIdle" }),
     "#copy": makeElement({ i18n: "copyButton" }),
+    "#usage-stat": { ...makeElement(), hidden: true },
+    "#usage-count": makeElement(),
     "#meta-description": makeElement(),
   };
   const heading = makeElement({ i18nHtml: "heroTitle" });
@@ -82,6 +84,7 @@ test("language switch follows the browser language and can select English", () =
     location: { href: "https://example.com/favimg/" },
     localStorage: { getItem() { return null; }, setItem() {} },
     setTimeout() {},
+    fetch: async () => ({ ok: true, async json() { return { count: 12345 }; } }),
   };
   const navigator = { languages: ["zh-CN"], language: "zh-CN", clipboard: {} };
 
@@ -112,6 +115,15 @@ test("serves health checks behind a path prefix", async () => {
   const response = await fetch(`${baseUrl}/favimg/health`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: "ok" });
+});
+
+test("serves usage statistics behind a path prefix", async () => {
+  const response = await fetch(`${baseUrl}/favimg/stats`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.json();
+  assert.equal(Number.isSafeInteger(body.count), true);
+  assert.equal(body.count >= 0, true);
 });
 
 test("rejects unsupported methods", async () => {

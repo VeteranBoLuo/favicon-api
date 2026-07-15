@@ -59,6 +59,13 @@ Open <http://localhost:3456> for the interactive playground, or request an icon 
 curl "http://localhost:3456/?url=github.com" -o github.svg
 ```
 
+The public usage total is kept in memory by default. Set a writable file path to persist it across restarts; `FAVICON_USAGE_COUNT_START` can seed an existing historical total:
+
+```bash
+FAVICON_USAGE_COUNT_FILE=./data/usage-count.json \
+FAVICON_USAGE_COUNT_START=12000 npm start
+```
+
 ### Docker
 
 ```bash
@@ -90,6 +97,14 @@ Errors use JSON: `{ "error": "..." }` with `400`, `403`, `404`, or `502` status 
 
 ```json
 { "status": "ok" }
+```
+
+### `GET /stats`
+
+Returns the number of successful favicon requests. Built-in playground previews are excluded.
+
+```json
+{ "count": 12001 }
 ```
 
 ## How it works

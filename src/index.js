@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { getFavicon, generateETag } from "./favicon.js";
+import { usageCounter } from "./usage-counter.js";
 
 const PORT = parseInt(process.env.PORT || "3456", 10);
 const DEMO_HTML = readFileSync(new URL("../public/index.html", import.meta.url));
@@ -53,9 +54,17 @@ export async function handle(req, res) {
     return;
   }
 
+  if (parsedUrl.pathname === "/stats" || parsedUrl.pathname.endsWith("/stats")) {
+    sendJson(res, 200, { count: await usageCounter.value() }, {
+      "Cache-Control": "no-store",
+    });
+    return;
+  }
+
   const domain = (parsedUrl.searchParams.get("url") || "").trim();
   if (domain) {
-    await serveFavicon(req, res, domain);
+    const countUsage = parsedUrl.searchParams.get("preview") !== "1";
+    await serveFavicon(req, res, domain, countUsage);
     return;
   }
 
@@ -74,7 +83,7 @@ export async function handle(req, res) {
   sendJson(res, 400, { error: "Missing url parameter. Usage: ?url=example.com" });
 }
 
-async function serveFavicon(req, res, domain) {
+async function serveFavicon(req, res, domain, countUsage) {
   if (domain.length > 512 || domain.includes("\n") || domain.includes("\r")) {
     sendJson(res, 400, { error: "Invalid URL" });
     return;
@@ -83,6 +92,7 @@ async function serveFavicon(req, res, domain) {
   try {
     const result = await getFavicon(domain);
     const etag = generateETag(result.buffer);
+    if (countUsage) await usageCounter.increment();
 
     res.setHeader("Cache-Control", "public, max-age=3600");
     res.setHeader("ETag", etag);
@@ -110,8 +120,8 @@ async function serveFavicon(req, res, domain) {
   }
 }
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+function sendJson(res, status, body, headers = {}) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...headers });
   res.end(JSON.stringify(body));
 }
 

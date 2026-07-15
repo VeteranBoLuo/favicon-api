@@ -59,6 +59,13 @@ npm start
 curl "http://localhost:3456/?url=github.com" -o github.svg
 ```
 
+使用次数默认保存在内存中。设置可写文件路径后可跨重启持久化；`FAVICON_USAGE_COUNT_START` 可用于导入已有的真实历史次数：
+
+```bash
+FAVICON_USAGE_COUNT_FILE=./data/usage-count.json \
+FAVICON_USAGE_COUNT_START=12000 npm start
+```
+
 ### Docker
 
 ```bash
@@ -90,6 +97,14 @@ https://boluo66.top/favimg/?url=https%3A%2F%2Fgithub.com%2Fopenai
 
 ```json
 { "status": "ok" }
+```
+
+### `GET /stats`
+
+返回成功的图标请求次数，不统计体验页自动加载的示例预览。
+
+```json
+{ "count": 12001 }
 ```
 
 ## 工作原理
