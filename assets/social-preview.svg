@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">favicon-api GitHub social preview</title>
+  <desc id="desc">Get any site's favicon with one simple URL.</desc>
+  <defs>
+    <linearGradient id="bg" x1="90" y1="30" x2="1130" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17152d"/>
+      <stop offset="0.55" stop-color="#0d0d19"/>
+      <stop offset="1" stop-color="#080910"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#9b8cff"/>
+      <stop offset=".5" stop-color="#7668f7"/>
+      <stop offset="1" stop-color="#5546d9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(820 300) rotate(180) scale(570 420)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7668f7" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#7668f7" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="30" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="630" rx="28" fill="url(#glow)"/>
+  <g opacity=".12" stroke="#8d91b7">
+    <path d="M0 105h1200M0 210h1200M0 315h1200M0 420h1200M0 525h1200"/>
+    <path d="M120 0v630M240 0v630M360 0v630M480 0v630M600 0v630M720 0v630M840 0v630M960 0v630M1080 0v630"/>
+  </g>
+
+  <g transform="translate(78 72)">
+    <rect width="76" height="76" rx="20" fill="url(#purple)"/>
+    <path d="M20 20c0-4 3-7 7-7h32c4 0 7 3 7 7v6c0 4-3 7-7 7H40v9h13c4 0 7 3 7 7v5c0 4-3 7-7 7H40v8c0 4-3 7-7 7h-6c-4 0-7-3-7-7V20Z" fill="#fff"/>
+    <path d="m66 8 3.5 7 7 3.5-7 3.5-3.5 7-3.5-7-7-3.5 7-3.5 3.5-7Z" fill="#6ef0b1"/>
+  </g>
+  <text x="174" y="119" fill="#f8f8ff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="34" font-weight="750">favicon-api</text>
+  <text x="174" y="147" fill="#9699b2" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">boluo66.top/favimg</text>
+
+  <text x="78" y="276" fill="#fbfbff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="59" font-weight="760" letter-spacing="-2">Any site's favicon.</text>
+  <text x="78" y="344" fill="#a99fff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="59" font-weight="760" letter-spacing="-2">One simple URL.</text>
+  <text x="81" y="409" fill="#a7aabd" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="23">Fast · Secure · Multi-source fallback</text>
+
+  <g transform="translate(78 469)">
+    <rect width="553" height="62" rx="18" fill="#12131d" stroke="#343747" stroke-width="2"/>
+    <text x="23" y="39" fill="#7d8199" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18">https://boluo66.top/favimg/?url=</text>
+    <text x="390" y="39" fill="#f5f5ff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="18">github.com</text>
+  </g>
+  <text x="79" y="577" fill="#72768e" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="15" letter-spacing="1.3">OPEN SOURCE · ZERO DEPENDENCIES</text>
+
+  <g transform="translate(760 126)" filter="url(#shadow)">
+    <rect width="350" height="374" rx="36" fill="#151620" stroke="#36394a" stroke-width="2"/>
+    <rect x="34" y="35" width="282" height="58" rx="16" fill="#0c0d14"/>
+    <circle cx="63" cy="64" r="8" fill="#6ef0b1"/>
+    <text x="85" y="71" fill="#eef0ff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="17">github.com</text>
+    <path d="M175 112v43" stroke="#555a72" stroke-width="3" stroke-linecap="round"/>
+    <path d="m162 144 13 13 13-13" fill="none" stroke="#7d72ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="101" y="174" width="148" height="148" rx="35" fill="url(#purple)"/>
+    <circle cx="175" cy="248" r="49" fill="#fff"/>
+    <path d="M175 211c-21 0-38 17-38 38 0 16 10 30 24 35-1-5-2-10 1-15 2-4 8-7 13-7s11 3 13 7c3 5 2 10 1 15 14-5 24-19 24-35 0-21-17-38-38-38Z" fill="#1b1d28"/>
+    <path d="M151 242c6 4 10 4 16 0M183 242c6 4 10 4 16 0" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+    <path d="M224 163c0-9 7-16 16-16h18" stroke="#6ef0b1" stroke-width="4" stroke-linecap="round"/>
+    <path d="m249 137 10 10-10 10" fill="none" stroke="#6ef0b1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="75" y="341" width="200" height="2" rx="1" fill="#292c3c"/>
+    <circle cx="124" cy="342" r="5" fill="#7668f7"/>
+    <circle cx="175" cy="342" r="5" fill="#6ef0b1"/>
+    <circle cx="226" cy="342" r="5" fill="#ffb55f"/>
+  </g>
+</svg>
