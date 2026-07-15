@@ -9,9 +9,9 @@
 <img src="https://img.shields.io/badge/dependencies-0-brightgreen?style=for-the-badge" alt="zero dependency">
 <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT">
 
-<a href="https://boluo66.top/favimg/?url=github.com"><img src="https://img.shields.io/badge/🚀_ライブAPI-615ced?style=for-the-badge&logoColor=white" alt="demo"></a>
+<a href="https://boluo66.top/favimg/"><img src="https://img.shields.io/badge/🚀_ライブデモ-615ced?style=for-the-badge&logoColor=white" alt="demo"></a>
 
-[简体中文](README.zh-CN.md) | [English](README.md) | 日本語 | [한국어](README.ko.md)
+[简体中文](README.md) | [English](README.en.md) | 日本語 | [한국어](README.ko.md)
 
 </div>
 
@@ -44,7 +44,7 @@ npm start          # 既定 http://localhost:3456
 curl "http://localhost:3456/?url=github.com" -o github.png
 ```
 
-ライブ API: <https://boluo66.top/favimg/?url=github.com>
+ライブデモ: <https://boluo66.top/favimg/> · API 例: <https://boluo66.top/favimg/?url=github.com>
 
 ## 📖 API
 
