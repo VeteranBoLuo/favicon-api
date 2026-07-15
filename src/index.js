@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { getFavicon, generateETag } from "./favicon.js";
 import { usageCounter } from "./usage-counter.js";
+import { usageQualifier } from "./usage-qualifier.js";
 
 const PORT = parseInt(process.env.PORT || "3456", 10);
 const DEMO_HTML = readFileSync(new URL("../public/index.html", import.meta.url));
@@ -92,7 +93,9 @@ async function serveFavicon(req, res, domain, countUsage) {
   try {
     const result = await getFavicon(domain);
     const etag = generateETag(result.buffer);
-    if (countUsage) await usageCounter.increment();
+    if (countUsage && usageQualifier.shouldCountRequest(req, domain)) {
+      await usageCounter.increment();
+    }
 
     res.setHeader("Cache-Control", "public, max-age=3600");
     res.setHeader("ETag", etag);

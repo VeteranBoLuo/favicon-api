@@ -79,7 +79,24 @@
     .eyebrow::before { width: 7px; height: 7px; border-radius: 99px; background: var(--success); content: ""; box-shadow: 0 0 12px var(--success); }
     h1 { max-width: 780px; margin: 0 auto; font-size: clamp(42px, 7vw, 76px); line-height: 1.02; letter-spacing: -.06em; }
     .gradient { color: transparent; background: linear-gradient(100deg, #fff 10%, #b8afff 85%); background-clip: text; }
-    .lede { max-width: 640px; margin: 24px auto 38px; color: var(--muted); font-size: clamp(17px, 2.4vw, 20px); line-height: 1.65; }
+    .lede { max-width: 640px; margin: 24px auto; color: var(--muted); font-size: clamp(17px, 2.4vw, 20px); line-height: 1.65; }
+
+    .api-example {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      width: min(760px, 100%);
+      margin: 0 auto 16px;
+      padding: 9px 9px 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(17, 17, 20, .72);
+      text-align: left;
+    }
+    .api-method { color: var(--success); font: 750 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+    .api-url { min-width: 0; overflow: hidden; color: #d8d4ff; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .api-copy { padding: 9px 12px; color: var(--text); border: 1px solid var(--line); background: #1c1c20; font-size: 12px; }
 
     .playground {
       width: min(760px, 100%);
@@ -170,6 +187,9 @@
       .language-switch { overflow-x: auto; }
       .language-button { padding-inline: 7px; }
       main { padding-top: 42px; }
+      .api-example { grid-template-columns: auto 1fr; padding: 11px 12px 12px; }
+      .api-url { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; white-space: normal; }
+      .api-copy { grid-column: 2; grid-row: 1; justify-self: end; }
       form { grid-template-columns: 1fr; }
       button[type="submit"] { min-height: 50px; }
       .result { grid-template-columns: auto 1fr; }
@@ -199,6 +219,12 @@
       <p class="eyebrow" data-i18n="eyebrow">Zero dependencies · Self-hosted</p>
       <h1 data-i18n-html="heroTitle">Any site's favicon.<br><span class="gradient">One simple URL.</span></h1>
       <p class="lede" data-i18n="lede">A small, secure Node.js API that discovers real favicons, rejects fake placeholders, and falls back when sites block bots.</p>
+
+      <div class="api-example" aria-label="API request URL" data-i18n-aria="apiExampleLabel">
+        <span class="api-method">GET</span>
+        <code class="api-url" id="api-example-url">https://boluo66.top/favimg/?url=github.com</code>
+        <button class="api-copy" id="copy-endpoint" type="button" data-i18n="copyEndpoint">Copy API URL</button>
+      </div>
 
       <section class="playground" aria-label="Try the favicon API" data-i18n-aria="playgroundLabel">
         <form id="lookup-form">
@@ -270,6 +296,9 @@
         eyebrow: '零依赖 · 可自托管',
         heroTitle: '任意网站的图标。<br><span class="gradient">只需一个 URL。</span>',
         lede: '一个小巧、安全的 Node.js API：自动发现真实图标，过滤假占位图，并在网站阻止机器人时智能兜底。',
+        apiExampleLabel: 'API 请求地址',
+        copyEndpoint: '复制接口',
+        endpointCopied: '已复制',
         playgroundLabel: '体验 favicon API',
         inputPlaceholder: '输入域名，例如 baidu.com',
         inputLabel: '网站域名',
@@ -283,8 +312,8 @@
         copyError: '复制失败，请手动选择上方 URL。',
         iconAlt: '{domain} 网站图标',
         examplesLabel: '示例域名',
-        usagePrefix: '已成功返回',
-        usageSuffix: '次图标请求',
+        usagePrefix: '已完成',
+        usageSuffix: '次有效图标获取',
         featuresLabel: '功能',
         feature1Kicker: '01 / 稳定',
         feature1Title: '多源智能兜底',
@@ -307,6 +336,9 @@
         eyebrow: 'Zero dependencies · Self-hosted',
         heroTitle: "Any site's favicon.<br><span class=\"gradient\">One simple URL.</span>",
         lede: 'A small, secure Node.js API that discovers real favicons, rejects fake placeholders, and falls back when sites block bots.',
+        apiExampleLabel: 'API request URL',
+        copyEndpoint: 'Copy API URL',
+        endpointCopied: 'Copied',
         playgroundLabel: 'Try the favicon API',
         inputPlaceholder: 'Enter a domain, e.g. github.com',
         inputLabel: 'Website domain',
@@ -320,8 +352,8 @@
         copyError: 'Copy failed. Select the URL above manually.',
         iconAlt: '{domain} favicon',
         examplesLabel: 'Example domains',
-        usagePrefix: 'Successfully served',
-        usageSuffix: 'favicon requests',
+        usagePrefix: 'Completed',
+        usageSuffix: 'qualified favicon fetches',
         featuresLabel: 'Features',
         feature1Kicker: '01 / resilient',
         feature1Title: 'Multi-source fallback',
@@ -344,6 +376,9 @@
         eyebrow: '依存ゼロ · セルフホスト',
         heroTitle: 'あらゆるサイトの favicon。<br><span class="gradient">必要なのは URL 一つ。</span>',
         lede: '実際の favicon を自動検出し、偽のプレースホルダを除外。対象サイトにブロックされた場合も安全にフォールバックします。',
+        apiExampleLabel: 'API リクエスト URL',
+        copyEndpoint: 'API URL をコピー',
+        endpointCopied: 'コピー済み',
         playgroundLabel: 'favicon API を試す',
         inputPlaceholder: 'ドメインを入力（例: yahoo.co.jp）',
         inputLabel: 'ウェブサイトのドメイン',
@@ -358,7 +393,7 @@
         iconAlt: '{domain} の favicon',
         examplesLabel: 'ドメイン例',
         usagePrefix: 'これまでに',
-        usageSuffix: '件の favicon リクエストを正常に返しました',
+        usageSuffix: '件の有効な favicon 取得を完了',
         featuresLabel: '機能',
         feature1Kicker: '01 / 安定',
         feature1Title: '多段フォールバック',
@@ -381,6 +416,9 @@
         eyebrow: '의존성 제로 · 셀프 호스팅',
         heroTitle: '모든 사이트의 favicon.<br><span class="gradient">URL 하나면 충분합니다.</span>',
         lede: '실제 favicon을 자동으로 찾고 가짜 플레이스홀더를 거르며, 대상 사이트가 봇을 차단해도 안전하게 폴백합니다.',
+        apiExampleLabel: 'API 요청 URL',
+        copyEndpoint: 'API URL 복사',
+        endpointCopied: '복사됨',
         playgroundLabel: 'favicon API 체험',
         inputPlaceholder: '도메인 입력 (예: naver.com)',
         inputLabel: '웹사이트 도메인',
@@ -395,7 +433,7 @@
         iconAlt: '{domain} favicon',
         examplesLabel: '예시 도메인',
         usagePrefix: '지금까지',
-        usageSuffix: '건의 favicon 요청을 성공적으로 제공했습니다',
+        usageSuffix: '건의 유효한 favicon 가져오기를 완료했습니다',
         featuresLabel: '기능',
         feature1Kicker: '01 / 안정성',
         feature1Title: '다중 소스 폴백',
@@ -420,6 +458,8 @@
     const resultUrl = document.querySelector('#result-url');
     const status = document.querySelector('#status');
     const copyButton = document.querySelector('#copy');
+    const apiExampleUrl = document.querySelector('#api-example-url');
+    const copyEndpointButton = document.querySelector('#copy-endpoint');
     const usageStat = document.querySelector('#usage-stat');
     const usageCount = document.querySelector('#usage-count');
     const metaDescription = document.querySelector('#meta-description');
@@ -485,6 +525,10 @@
       return url.toString();
     }
 
+    function updateApiExample(domain = input.value) {
+      apiExampleUrl.textContent = apiUrlFor(domain.trim() || 'example.com');
+    }
+
     function renderUsageCount() {
       if (!Number.isSafeInteger(currentUsageCount) || currentUsageCount <= 0) return;
       usageCount.textContent = new Intl.NumberFormat(currentLanguage).format(currentUsageCount);
@@ -510,6 +554,7 @@
       if (!value) return;
       input.value = value;
       currentApiUrl = apiUrlFor(value);
+      updateApiExample(value);
       resultDomain.textContent = value;
       resultUrl.textContent = currentApiUrl;
       favicon.alt = t('iconAlt').replace('{domain}', value);
@@ -536,23 +581,34 @@
       lookup(input.value);
     });
 
+    input.addEventListener('input', () => updateApiExample());
+
     document.querySelectorAll('.example').forEach((button) => {
       button.addEventListener('click', () => lookup(button.dataset.domain));
     });
 
-    copyButton.addEventListener('click', async () => {
+    async function copyUrl(value, button, resetKey, copiedKey = 'copied') {
       try {
-        await navigator.clipboard.writeText(currentApiUrl);
-        copyButton.textContent = t('copied');
-        window.setTimeout(() => { copyButton.textContent = t('copyButton'); }, 1400);
+        await navigator.clipboard.writeText(value);
+        button.textContent = t(copiedKey);
+        window.setTimeout(() => { button.textContent = t(resetKey); }, 1400);
       } catch {
         currentStatusKey = 'copyError';
         status.textContent = t(currentStatusKey);
       }
+    }
+
+    copyEndpointButton.addEventListener('click', () => {
+      copyUrl(apiExampleUrl.textContent, copyEndpointButton, 'copyEndpoint', 'endpointCopied');
+    });
+
+    copyButton.addEventListener('click', () => {
+      copyUrl(currentApiUrl, copyButton, 'copyButton');
     });
 
     const preferredLanguage = getStoredLanguage() || navigator.languages?.[0] || navigator.language || 'en';
     applyLanguage(preferredLanguage);
+    updateApiExample();
     loadUsageCount();
   </script>
 </body>

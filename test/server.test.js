@@ -58,6 +58,8 @@ test("language switch follows the browser language and can select English", () =
     "#result-url": makeElement(),
     "#status": makeElement({ i18n: "statusIdle" }),
     "#copy": makeElement({ i18n: "copyButton" }),
+    "#api-example-url": makeElement(),
+    "#copy-endpoint": makeElement({ i18n: "copyEndpoint" }),
     "#usage-stat": { ...makeElement(), hidden: true },
     "#usage-count": makeElement(),
     "#meta-description": makeElement(),
@@ -71,7 +73,7 @@ test("language switch follows the browser language and can select English", () =
     querySelector(selector) { return elements[selector]; },
     querySelectorAll(selector) {
       return {
-        "[data-i18n]": [elements["#status"], elements["#copy"]],
+        "[data-i18n]": [elements["#status"], elements["#copy"], elements["#copy-endpoint"]],
         "[data-i18n-html]": [heading],
         "[data-i18n-placeholder]": [elements["#domain"]],
         "[data-i18n-aria]": [languageNav, elements["#domain"]],
@@ -91,6 +93,8 @@ test("language switch follows the browser language and can select English", () =
   new Function("document", "window", "navigator", script)(document, window, navigator);
   assert.equal(document.documentElement.lang, "zh-CN");
   assert.match(heading.innerHTML, /只需一个 URL/);
+  assert.equal(elements["#api-example-url"].textContent, "https://example.com/favimg/?url=baidu.com");
+  assert.equal(elements["#copy-endpoint"].textContent, "复制接口");
   languageButtons[1].listeners.click();
   assert.equal(document.documentElement.lang, "en");
   assert.match(heading.innerHTML, /One simple URL/);

@@ -101,11 +101,13 @@ Errors use JSON: `{ "error": "..." }` with `400`, `403`, `404`, or `502` status 
 
 ### `GET /stats`
 
-Returns the number of successful favicon requests. Built-in playground previews are excluded.
+Returns the number of qualified, successful favicon fetches. Built-in playground previews are excluded.
 
 ```json
 { "count": 12001 }
 ```
+
+The public total counts the same client and normalized hostname at most once every 30 minutes; different hostnames still count, so legitimate bulk imports remain represented. After 3,000 distinct hostnames from one client within 10 minutes, only the public counter pauses — API responses continue normally. Set `FAVICON_TRUST_PROXY=1` only behind a proxy that overwrites `X-Real-IP`; `FAVICON_USAGE_TRUSTED_IPS` can exempt trusted first-party importers from the extreme burst threshold.
 
 ## How it works
 

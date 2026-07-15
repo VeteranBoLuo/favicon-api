@@ -20,7 +20,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/favicon.js && node --check src/usage-counter.js && node --test"
+    "check": "node --check src/index.js && node --check src/favicon.js && node --check src/usage-counter.js && node --check src/usage-qualifier.js && node --test"
   },
   "engines": {
     "node": ">=18"
