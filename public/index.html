@@ -155,6 +155,11 @@
     }
     .example:hover { color: var(--text); border-color: #4a465f; }
     .example img { width: 18px; height: 18px; object-fit: contain; border-radius: 4px; }
+    .example img.icon-on-light {
+      padding: 2px;
+      background: #fff;
+      box-sizing: border-box;
+    }
     .usage-stat {
       display: inline-flex;
       align-items: center;
@@ -244,7 +249,7 @@
 
       <div class="hero-support">
         <div class="examples" aria-label="Example domains" data-i18n-aria="examplesLabel">
-          <button class="example" type="button" data-domain="github.com"><img src="?url=github.com&amp;preview=1" alt="">github.com</button>
+          <button class="example" type="button" data-domain="github.com"><img class="icon-on-light" src="?url=github.com&amp;preview=1" alt="">github.com</button>
           <button class="example" type="button" data-domain="google.com"><img src="?url=google.com&amp;preview=1" alt="">google.com</button>
           <button class="example" type="button" data-domain="baidu.com"><img src="?url=baidu.com&amp;preview=1" alt="">baidu.com</button>
           <button class="example" type="button" data-domain="bilibili.com"><img src="?url=bilibili.com&amp;preview=1" alt="">bilibili.com</button>
