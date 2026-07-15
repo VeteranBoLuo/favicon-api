@@ -22,7 +22,7 @@ test("serves the interactive demo", async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type"), /^text\/html/);
   const html = await response.text();
-  assert.match(html, /任意网站的图标/);
+  assert.match(html, /Any site's favicon/);
   for (const language of ["zh-CN", "en", "ja", "ko"]) {
     assert.match(html, new RegExp(`data-lang="${language}"`));
   }
@@ -35,7 +35,7 @@ test("embedded demo script parses", () => {
   assert.doesNotThrow(() => new Function(script));
 });
 
-test("language switch defaults to Chinese and can select English", () => {
+test("language switch follows the browser language and can select English", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
   const makeElement = (dataset = {}) => ({
@@ -91,6 +91,21 @@ test("language switch defaults to Chinese and can select English", () => {
   languageButtons[1].listeners.click();
   assert.equal(document.documentElement.lang, "en");
   assert.match(heading.innerHTML, /One simple URL/);
+});
+
+test("serves brand assets behind a path prefix", async () => {
+  const svgResponse = await fetch(`${baseUrl}/favimg/favicon.svg`);
+  assert.equal(svgResponse.status, 200);
+  assert.match(svgResponse.headers.get("content-type"), /^image\/svg\+xml/);
+  assert.match(await svgResponse.text(), /favicon-api/);
+
+  const pngResponse = await fetch(`${baseUrl}/favimg/apple-touch-icon.png`);
+  assert.equal(pngResponse.status, 200);
+  assert.equal(pngResponse.headers.get("content-type"), "image/png");
+
+  const manifestResponse = await fetch(`${baseUrl}/favimg/site.webmanifest`);
+  assert.equal(manifestResponse.status, 200);
+  assert.equal((await manifestResponse.json()).name, "favicon-api");
 });
 
 test("serves health checks behind a path prefix", async () => {

@@ -1,0 +1,21 @@
+{
+  "name": "favicon-api",
+  "short_name": "favicon-api",
+  "description": "Fetch any site's favicon with one simple URL.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#6d5dfc",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

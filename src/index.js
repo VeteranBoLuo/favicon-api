@@ -4,6 +4,14 @@ import { getFavicon, generateETag } from "./favicon.js";
 
 const PORT = parseInt(process.env.PORT || "3456", 10);
 const DEMO_HTML = readFileSync(new URL("../public/index.html", import.meta.url));
+const PUBLIC_ASSETS = new Map([
+  ["favicon.svg", { contentType: "image/svg+xml; charset=utf-8", body: readFileSync(new URL("../public/favicon.svg", import.meta.url)) }],
+  ["favicon.ico", { contentType: "image/x-icon", body: readFileSync(new URL("../public/favicon.ico", import.meta.url)) }],
+  ["favicon-16x16.png", { contentType: "image/png", body: readFileSync(new URL("../public/favicon-16x16.png", import.meta.url)) }],
+  ["favicon-32x32.png", { contentType: "image/png", body: readFileSync(new URL("../public/favicon-32x32.png", import.meta.url)) }],
+  ["apple-touch-icon.png", { contentType: "image/png", body: readFileSync(new URL("../public/apple-touch-icon.png", import.meta.url)) }],
+  ["site.webmanifest", { contentType: "application/manifest+json; charset=utf-8", body: readFileSync(new URL("../public/site.webmanifest", import.meta.url)) }],
+]);
 
 export async function handle(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -25,6 +33,19 @@ export async function handle(req, res) {
   }
 
   const parsedUrl = new URL(req.url, "http://localhost");
+
+  const assetName = parsedUrl.pathname.split("/").pop();
+  const asset = PUBLIC_ASSETS.get(assetName);
+  if (asset) {
+    res.writeHead(200, {
+      "Content-Type": asset.contentType,
+      "Content-Length": asset.body.length,
+      "Cache-Control": "public, max-age=86400",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
+    res.end(asset.body);
+    return;
+  }
 
   // Accept /health as well as a reverse-proxy mount such as /favimg/health.
   if (parsedUrl.pathname === "/health" || parsedUrl.pathname.endsWith("/health")) {

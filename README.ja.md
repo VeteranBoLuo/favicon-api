@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="public/favicon.svg" width="88" height="88" alt="favicon-api ロゴ">
+
 # favicon-api
 
 **URL 一つで、あらゆるサイトの favicon を取得。**
@@ -11,7 +13,7 @@
 
 <a href="https://boluo66.top/favimg/"><img src="https://img.shields.io/badge/🚀_ライブデモ-615ced?style=for-the-badge&logoColor=white" alt="demo"></a>
 
-[简体中文](README.md) | [English](README.en.md) | 日本語 | [한국어](README.ko.md)
+[English](README.md) · [简体中文](README.zh-CN.md) · 日本語 · [한국어](README.ko.md)
 
 </div>
 

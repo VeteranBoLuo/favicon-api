@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">favicon-api</title>
+  <desc id="desc">A white pixel F and mint discovery spark on a purple rounded square.</desc>
+  <defs>
+    <linearGradient id="background" x1="36" y1="24" x2="220" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9B8CFF"/>
+      <stop offset="0.5" stop-color="#7668F7"/>
+      <stop offset="1" stop-color="#5546D9"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="44" y1="28" x2="166" y2="190" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#background)"/>
+  <path d="M0 58C0 26 26 0 58 0h140C120 8 54 47 0 116V58Z" fill="url(#shine)"/>
+  <path d="M68 58c0-7.7 6.3-14 14-14h94c7.7 0 14 6.3 14 14v18c0 7.7-6.3 14-14 14h-60v25h43c7.7 0 14 6.3 14 14v17c0 7.7-6.3 14-14 14h-43v48c0 7.7-6.3 14-14 14H82c-7.7 0-14-6.3-14-14V58Z" fill="#FFFFFF"/>
+  <path d="m200 33 6.7 13.3L220 53l-13.3 6.7L200 73l-6.7-13.3L180 53l13.3-6.7L200 33Z" fill="#6EF0B1"/>
+</svg>
