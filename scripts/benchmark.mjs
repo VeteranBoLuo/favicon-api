@@ -20,15 +20,21 @@ const FILTER_CACHE_MISS_HEADER = "x-benchmark-no-cache";
 const args = process.argv.slice(2);
 let inputFile = null;
 let outputFile = null;
+let concurrencyArg = 1;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--output" && args[i + 1]) {
     outputFile = args[i + 1];
     i++;
+  } else if (args[i] === "--concurrency" && args[i + 1]) {
+    concurrencyArg = parseInt(args[i + 1], 10);
+    i++;
   } else if (!inputFile) {
     inputFile = args[i];
   }
 }
+
+const CONCURRENCY = Math.max(1, concurrencyArg);
 
 function loadUrls(path) {
   if (!path) {
@@ -72,86 +78,85 @@ function serverUrl(domain) {
   return `http://127.0.0.1:${DEFAULT_PORT}/?url=${encodeURIComponent(domain)}&preview=1`;
 }
 
-// ── 执行测试 ──────────────────────────────────────────────
+// ── 执行测试（并发池） ──────────────────────────────────────
 const results = [];
 const errors = {};
+const allStartTimes = []; // 记录每个成功完成的时间戳，用于 UX 指标
 
-console.error(`[benchmark] 开始测试 ${urls.length} 个 URL ...`);
+console.error(`[benchmark] 开始测试 ${urls.length} 个 URL，并发 ${CONCURRENCY} ...`);
 
 const startOverall = performance.now();
 
-for (let i = 0; i < urls.length; i++) {
-  const domain = urls[i];
-  const start = performance.now();
-  let status = 0;
-  let contentType = "";
-  let cacheHit = false;
-  let sourceUrl = "";
-  let errorCode = null;
+let cursor = 0;
+const runners = Array.from({ length: Math.min(CONCURRENCY, urls.length) }, async () => {
+  while (true) {
+    const i = cursor++;
+    if (i >= urls.length) return;
+    const domain = urls[i];
+    const start = performance.now();
+    let status = 0;
+    let contentType = "";
+    let cacheHit = false;
+    let sourceUrl = "";
+    let errorCode = null;
 
-  try {
-    const resp = await fetch(serverUrl(domain), {
-      signal: AbortSignal.timeout(30_000),
-    });
-    status = resp.status;
-    contentType = resp.headers.get("content-type") || "";
-    cacheHit = resp.headers.get("x-favicon-cache") === "hit";
-    sourceUrl = resp.headers.get("x-favicon-source") || resp.headers.get("x-favicon-source-type") || "";
-
-    if (resp.ok) {
-      const body = await resp.arrayBuffer();
-      results.push({
-        domain,
-        ok: true,
-        duration: Math.round(performance.now() - start),
-        status,
-        contentType,
-        cacheHit,
-        sourceUrl: sourceUrl || "unknown",
-        errorCode: null,
+    try {
+      const resp = await fetch(serverUrl(domain), {
+        signal: AbortSignal.timeout(30_000),
       });
-    } else {
-      // 错误响应 (JSON body)
-      let errBody = {};
-      try {
-        errBody = JSON.parse(await resp.text());
-      } catch {}
-      errorCode = errBody.code || `HTTP_${status}`;
-      const cat = errorCode;
-      errors[cat] = (errors[cat] || 0) + 1;
+      status = resp.status;
+      contentType = resp.headers.get("content-type") || "";
+      cacheHit = resp.headers.get("x-favicon-cache") === "hit";
+      sourceUrl = resp.headers.get("x-favicon-source") || resp.headers.get("x-favicon-source-type") || "";
 
+      if (resp.ok) {
+        const body = await resp.arrayBuffer();
+        allStartTimes.push({ index: i, time: performance.now(), duration: Math.round(performance.now() - start) });
+        results.push({
+          domain,
+          ok: true,
+          duration: Math.round(performance.now() - start),
+          status,
+          contentType,
+          cacheHit,
+          sourceUrl: sourceUrl || "unknown",
+          errorCode: null,
+        });
+      } else {
+        let errBody = {};
+        try { errBody = JSON.parse(await resp.text()); } catch {}
+        errorCode = errBody.code || `HTTP_${status}`;
+        errors[errorCode] = (errors[errorCode] || 0) + 1;
+        results.push({
+          domain,
+          ok: false,
+          duration: Math.round(performance.now() - start),
+          status,
+          contentType,
+          cacheHit,
+          sourceUrl: "",
+          errorCode,
+        });
+      }
+    } catch (err) {
+      const dur = Math.round(performance.now() - start);
+      const cat = err.name === "TimeoutError" ? "UPSTREAM_TIMEOUT" : "NETWORK_ERROR";
+      errors[cat] = (errors[cat] || 0) + 1;
       results.push({
         domain,
         ok: false,
-        duration: Math.round(performance.now() - start),
-        status,
-        contentType,
-        cacheHit,
+        duration: dur,
+        status: 0,
+        contentType: "",
+        cacheHit: false,
         sourceUrl: "",
-        errorCode,
+        errorCode: cat,
       });
     }
-  } catch (err) {
-    const dur = Math.round(performance.now() - start);
-    const cat = err.name === "TimeoutError" ? "UPSTREAM_TIMEOUT" : "NETWORK_ERROR";
-    errors[cat] = (errors[cat] || 0) + 1;
-
-    results.push({
-      domain,
-      ok: false,
-      duration: dur,
-      status: 0,
-      contentType: "",
-      cacheHit: false,
-      sourceUrl: "",
-      errorCode: cat,
-    });
   }
+});
 
-  if ((i + 1) % 50 === 0) {
-    console.error(`[benchmark] 已完成 ${i + 1}/${urls.length}`);
-  }
-}
+await Promise.all(runners);
 
 const totalDuration = Math.round(performance.now() - startOverall);
 
@@ -193,6 +198,20 @@ const allP50 = percentile(allDurations, 50);
 const allP90 = percentile(allDurations, 90);
 const allP95 = percentile(allDurations, 95);
 
+// 用户体验指标
+const successfulTimes = allStartTimes.map((t) => t.time - startOverall).sort((a, b) => a - b);
+const timeToFirstSuccess = successfulTimes.length > 0 ? Math.round(successfulTimes[0]) : null;
+const timeTo10Percent = successfulTimes.length >= Math.ceil(urls.length * 0.1) ? Math.round(successfulTimes[Math.ceil(urls.length * 0.1) - 1]) : null;
+const timeTo50Percent = successfulTimes.length >= Math.ceil(urls.length * 0.5) ? Math.round(successfulTimes[Math.ceil(urls.length * 0.5) - 1]) : null;
+const timeTo90Percent = successfulTimes.length >= Math.ceil(urls.length * 0.9) ? Math.round(successfulTimes[Math.ceil(urls.length * 0.9) - 1]) : null;
+const timeToAllTerminal = totalDuration;
+const sortedSuccessTimes = allStartTimes.map((t) => t.time).sort((a, b) => a - b);
+let maxGapBetweenSuccesses = 0;
+for (let i = 1; i < sortedSuccessTimes.length; i++) {
+  maxGapBetweenSuccesses = Math.max(maxGapBetweenSuccesses, sortedSuccessTimes[i] - sortedSuccessTimes[i - 1]);
+}
+const successesPerSecond = successes.length > 0 ? Math.round((successes.length / totalDuration) * 1000 * 100) / 100 : 0;
+
 const report = {
   meta: {
     timestamp: new Date().toISOString(),
@@ -226,6 +245,15 @@ const report = {
   },
   errorCodeDistribution: errors,
   sourceTypeDistribution: sourceTypeDist,
+  uxMetrics: {
+    timeToFirstSuccess,
+    timeTo10Percent,
+    timeTo50Percent,
+    timeTo90Percent,
+    timeToAllTerminal,
+    maxGapBetweenSuccesses: Math.round(maxGapBetweenSuccesses),
+    successesPerSecond,
+  },
 };
 
 // ── 保存 / 输出 ──────────────────────────────────────────
@@ -258,6 +286,15 @@ console.error(`    P50:           ${report.latency.p50}`);
 console.error(`    P90:           ${report.latency.p90}`);
 console.error(`    P95:           ${report.latency.p95}`);
 console.error(`    Max:           ${report.latency.max}`);
+console.error(`  ───────────────────────────────────────`);
+console.error(`  用户体验指标:`);
+console.error(`    首个图标:      ${report.uxMetrics?.timeToFirstSuccess || 'N/A'} ms`);
+console.error(`    前 10 个:      ${report.uxMetrics?.timeTo10Percent || 'N/A'} ms`);
+console.error(`    50%:           ${report.uxMetrics?.timeTo50Percent || 'N/A'} ms`);
+console.error(`    90%:           ${report.uxMetrics?.timeTo90Percent || 'N/A'} ms`);
+console.error(`    全部终端:      ${report.uxMetrics?.timeToAllTerminal || 'N/A'} ms`);
+console.error(`    成功间最大间隔: ${report.uxMetrics?.maxGapBetweenSuccesses || 'N/A'} ms`);
+console.error(`    成功率/秒:     ${report.uxMetrics?.successesPerSecond || 'N/A'}`);
 console.error(`  ───────────────────────────────────────`);
 console.error(`  全部请求延迟 (ms):`);
 console.error(`    P50:           ${report.latency.allP50}`);

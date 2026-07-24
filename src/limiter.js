@@ -3,101 +3,104 @@
  *
  * 允许多少个 Origin 同时进行 favicon 抓取。
  * 当队列满时，返回 QUEUE_FULL 错误。
+ *
+ * 槽位交接采用直接转交模式：release 时如果队列有任务，
+ * 直接将当前槽位转交给下一个，避免 active-- 和下一个
+ * active++ 之间的竞态窗口。
  */
 
 import { ServiceError } from "./error.js";
 
-// 环境变量默认值
-const CONCURRENCY = parseInt(process.env.FAVICON_FETCH_CONCURRENCY || "8", 10);
-const QUEUE_MAX = parseInt(process.env.FAVICON_QUEUE_MAX || "500", 10);
-const RETRY_AFTER_SECONDS = parseInt(process.env.FAVICON_QUEUE_RETRY_AFTER_SECONDS || "15", 10);
+const DEFAULT_CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(
+    process.env.FAVICON_FETCH_CONCURRENCY || '12',
+    10,
+  ),
+);
 
-/** 全局限制器实例 */
-class Limiter {
+const DEFAULT_QUEUE_MAX = Math.max(
+  0,
+  Number.parseInt(
+    process.env.FAVICON_QUEUE_MAX || '500',
+    10,
+  ),
+);
+
+const DEFAULT_RETRY_AFTER = Math.max(
+  1,
+  Number.parseInt(
+    process.env.FAVICON_QUEUE_RETRY_AFTER_SECONDS || '15',
+    10,
+  ),
+);
+
+export class Limiter {
   #active = 0;
   #queue = [];
-  #concurrency;
-  #queueMax;
-  #retryAfter;
 
-  constructor({ concurrency = CONCURRENCY, queueMax = QUEUE_MAX, retryAfter = RETRY_AFTER_SECONDS } = {}) {
-    this.#concurrency = Math.max(1, concurrency);
-    this.#queueMax = Math.max(0, queueMax);
-    this.#retryAfter = Math.max(0, retryAfter);
+  constructor({
+    concurrency = DEFAULT_CONCURRENCY,
+    queueMax = DEFAULT_QUEUE_MAX,
+    retryAfter = DEFAULT_RETRY_AFTER,
+  } = {}) {
+    this.concurrency = Math.max(1, concurrency);
+    this.queueMax = Math.max(0, queueMax);
+    this.retryAfter = Math.max(1, retryAfter);
   }
 
-  get active() {
-    return this.#active;
-  }
-
-  get queued() {
-    return this.#queue.length;
-  }
-
-  get concurrency() {
-    return this.#concurrency;
-  }
-
-  /**
-   * 尝试获取执行许可。
-   * 如果当前活跃数未达上限，立即返回一个释放函数。
-   * 否则将任务加入队列；如果队列已满则抛出 QUEUE_FULL。
-   *
-   * @returns {Function} release - 调用以释放并发槽位
-   */
-  async acquire() {
-    if (this.#active < this.#concurrency) {
-      this.#active++;
-      return this.#release();
+  acquire({ signal } = {}) {
+    if (signal?.aborted) {
+      return Promise.reject(
+        signal.reason ||
+        new DOMException('Aborted', 'AbortError'),
+      );
     }
 
-    if (this.#queue.length >= this.#queueMax) {
-      const err = new ServiceError("QUEUE_FULL");
-      err.retryAfter = this.#retryAfter;
-      throw err;
+    if (this.#active < this.concurrency) {
+      this.#active += 1;
+      return Promise.resolve(this.#createRelease());
     }
 
-    // 加入队列等待
+    if (this.#queue.length >= this.queueMax) {
+      return Promise.reject(new ServiceError('QUEUE_FULL'));
+    }
+
     return new Promise((resolve, reject) => {
-      const entry = { resolve, reject };
+      const entry = { resolve, reject, signal, onAbort: null };
+      entry.onAbort = () => {
+        const index = this.#queue.indexOf(entry);
+        if (index !== -1) {
+          this.#queue.splice(index, 1);
+        }
+        reject(signal.reason || new DOMException('Aborted', 'AbortError'));
+      };
+      signal?.addEventListener('abort', entry.onAbort, { once: true });
       this.#queue.push(entry);
-    }).then(() => {
-      this.#active++;
-      return this.#release();
     });
   }
 
-  #release() {
+  #createRelease() {
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      this.#active--;
-      // 从队列取出下一个等待任务
-      if (this.#queue.length > 0) {
-        const entry = this.#queue.shift();
-        entry.resolve(); // 触发下一个 acquire 返回
+
+      while (this.#queue.length) {
+        const next = this.#queue.shift();
+        next.signal?.removeEventListener('abort', next.onAbort);
+        if (next.signal?.aborted) continue;
+        // 槽位直接交给下一个任务，active 保持不变
+        next.resolve(this.#createRelease());
+        return;
       }
+
+      this.#active = Math.max(0, this.#active - 1);
     };
   }
 
-  /**
-   * 取消一个尚未开始的队列请求
-   * 返回 true 表示成功从队列移除
-   */
-  cancel(promise) {
-    const idx = this.#queue.findIndex((e) => e.promise === promise);
-    if (idx !== -1) {
-      this.#queue.splice(idx, 1);
-      return true;
-    }
-    return false;
-  }
-
-  get retryAfter() {
-    return this.#retryAfter;
-  }
+  get active() { return this.#active; }
+  get queued() { return this.#queue.length; }
 }
 
 export const limiter = new Limiter();
-export { Limiter as LimiterClass };

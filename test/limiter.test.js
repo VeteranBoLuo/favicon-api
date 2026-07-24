@@ -1,10 +1,10 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { LimiterClass } from "../src/limiter.js";
+import { Limiter } from "../src/limiter.js";
 
 describe("Limiter concurrency control", () => {
   it("acquire returns immediately when under concurrency limit", async () => {
-    const limiter = new LimiterClass({ concurrency: 5, queueMax: 10 });
+    const limiter = new Limiter({ concurrency: 5, queueMax: 10 });
     const release = await limiter.acquire();
     assert.equal(typeof release, "function");
     assert.equal(limiter.active, 1);
@@ -13,7 +13,7 @@ describe("Limiter concurrency control", () => {
   });
 
   it("queues tasks when at concurrency limit", async () => {
-    const limiter = new LimiterClass({ concurrency: 2, queueMax: 10 });
+    const limiter = new Limiter({ concurrency: 2, queueMax: 10 });
     const releases = await Promise.all([limiter.acquire(), limiter.acquire()]);
     assert.equal(limiter.active, 2);
     assert.equal(limiter.queued, 0);
@@ -35,7 +35,7 @@ describe("Limiter concurrency control", () => {
   });
 
   it("throws QUEUE_FULL when queue is full", async () => {
-    const limiter = new LimiterClass({ concurrency: 1, queueMax: 2 });
+    const limiter = new Limiter({ concurrency: 1, queueMax: 2 });
     await limiter.acquire(); // 占用唯一槽位
 
     // 填满队列
@@ -50,7 +50,7 @@ describe("Limiter concurrency control", () => {
   });
 
   it("FIFO order: first queued is first served", async () => {
-    const limiter = new LimiterClass({ concurrency: 1, queueMax: 10 });
+    const limiter = new Limiter({ concurrency: 1, queueMax: 10 });
     const keep = await limiter.acquire();
 
     const order = [];
@@ -74,7 +74,7 @@ describe("Limiter concurrency control", () => {
   });
 
   it("retryAfter reflects the configured value", () => {
-    const limiter = new LimiterClass({ retryAfter: 15 });
+    const limiter = new Limiter({ retryAfter: 15 });
     assert.equal(limiter.retryAfter, 15);
   });
 });
