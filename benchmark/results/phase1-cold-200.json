@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "timestamp": "2026-07-24T11:39:28.577Z",
+    "totalUrls": 197,
+    "uniqueOrigins": 182
+  },
+  "summary": {
+    "total": 197,
+    "success": 186,
+    "failed": 11,
+    "successRate": 94.42,
+    "durationMs": 209455,
+    "requestsPerSecond": 0.94
+  },
+  "latency": {
+    "p50": 469,
+    "p90": 2052,
+    "p95": 2808,
+    "max": 5473,
+    "allP50": 511,
+    "allP90": 2179,
+    "allP95": 3321
+  },
+  "cache": {
+    "cacheHit": 15,
+    "cacheMiss": 171,
+    "hitRate": 8.06
+  },
+  "errorCodeDistribution": {
+    "ICON_NOT_FOUND": 10,
+    "UPSTREAM_TIMEOUT": 1
+  },
+  "sourceTypeDistribution": {
+    "favicon": 153,
+    "favicone": 7,
+    "yandex": 11,
+    "cache": 15
+  }
+}

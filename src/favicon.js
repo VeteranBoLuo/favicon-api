@@ -1,18 +1,80 @@
+/**
+ * favicon 抓取核心逻辑
+ *
+ * 功能：
+ * - 同 Origin 进行中请求合并（inFlight Map）
+ * - 成功缓存 + 失败短缓存
+ * - 顺序抓取（先 HTML 解析声明图标，再 /favicon.ico，再聚合源兜底）
+ * - 总时间预算
+ * - 结构化错误
+ * - SSRF 防护（保持不变）
+ * - 与 limiter 和 runtime-metrics 集成
+ */
+
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
+import { ServiceError, classifyError } from "./error.js";
+import { limiter } from "./limiter.js";
+import { runtimeMetrics } from "./runtime-metrics.js";
+import { readPersistentCache, writePersistentCache, deletePersistentCache } from "./persistent-cache.js";
 
-const cache = new Map();
+// ── 环境变量 ──────────────────────────────────────────────
+const TOTAL_TIMEOUT_MS = parseInt(process.env.FAVICON_TOTAL_TIMEOUT_MS || "9000", 10);
+const AGGREGATOR_HEDGE_MS = parseInt(process.env.FAVICON_AGGREGATOR_HEDGE_MS || "1000", 10);
+const SECOND_AGGREGATOR_HEDGE_MS = parseInt(process.env.FAVICON_SECOND_AGGREGATOR_HEDGE_MS || "1500", 10);
+const SUCCESS_CACHE_TTL_MS = parseInt(process.env.FAVICON_SUCCESS_CACHE_TTL_MS || "3600000", 10);
+const SUCCESS_CACHE_MAX = parseInt(process.env.FAVICON_SUCCESS_CACHE_MAX || "1000", 10);
+const FAIL_CACHE_TTL_MS = parseInt(process.env.FAVICON_FAIL_CACHE_TTL_MS || "60000", 10);
 
-const CACHE_TTL = 60 * 60 * 1000;
-const CACHE_MAX = 500;
-const FETCH_TIMEOUT = 6_000;
-const HTML_FETCH_TIMEOUT = 4_000;
+// 抓取大小限制（保持不变）
 const MAX_FAVICON_SIZE = 5 * 1024 * 1024;
 const MAX_HTML_SIZE = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 
+// 聚合源 placeholder 哈希
+const AGGREGATOR_PLACEHOLDER_HASHES = new Set([
+  "ebfb7deb2782f551f757a9077203194dedeb132c091005204135905134e4b0e7",
+]);
+
+// ── 缓存 ──────────────────────────────────────────────────
+const successCache = new Map();
+const failureCache = new Map();
+const inFlightOrigins = new Map(); // originKey → Promise
+
+// ── 失败缓存 TTL ──────────────────────────────────────────
+const FAIL_TTL = {
+  ICON_NOT_FOUND: 6 * 3600_000,
+  INVALID_URL:    3600_000,
+  PRIVATE_ADDRESS: 3600_000,
+  DNS_ERROR:      60_000,
+  UPSTREAM_TIMEOUT: 30_000,
+  UPSTREAM_ERROR: 30_000,
+  QUEUE_FULL:     0,
+  INTERNAL_ERROR: 10_000,
+};
+
+function getFailTtl(code) {
+  return FAIL_TTL[code] !== undefined ? FAIL_TTL[code] : FAIL_CACHE_TTL_MS;
+}
+
+function cachePrune(map, maxSize) {
+  if (map.size < maxSize) return;
+  const oldest = map.keys().next().value;
+  if (oldest) map.delete(oldest);
+}
+
+// ── 导出缓存统计（供 runtime-metrics 更新） ────────────────
+export function getCacheStats() {
+  return {
+    successEntries: successCache.size,
+    failureEntries: failureCache.size,
+    inFlight: inFlightOrigins.size,
+  };
+}
+
+// ── SSRF 防护 ────────────────────────────────────────────
 function serviceError(code, message) {
-  return Object.assign(new Error(message), { code });
+  return new ServiceError(code, message);
 }
 
 /** Return true for non-public IPv4/IPv6 addresses. */
@@ -55,11 +117,11 @@ export async function assertPublicHost(hostname, lookupFn = lookup) {
   try {
     addresses = await lookupFn(hostname, { all: true });
   } catch {
-    throw serviceError("DNS_ERROR", "Unable to resolve hostname");
+    throw serviceError("DNS_ERROR");
   }
 
   if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {
-    throw serviceError("PRIVATE_ADDRESS", "Private and reserved addresses are not allowed");
+    throw serviceError("PRIVATE_ADDRESS");
   }
 }
 
@@ -72,7 +134,7 @@ export async function safeFetch(rawUrl, options = {}, dependencies = {}) {
   try {
     currentUrl = new URL(rawUrl);
   } catch {
-    throw serviceError("INVALID_URL", "Invalid URL");
+    throw serviceError("INVALID_URL");
   }
 
   if (!/^https?:$/.test(currentUrl.protocol)) {
@@ -102,6 +164,7 @@ export async function safeFetch(rawUrl, options = {}, dependencies = {}) {
   throw new Error("Too many redirects");
 }
 
+// ── HTML 解析 ────────────────────────────────────────────
 export function extractFaviconUrl(html, baseUrl) {
   const linkRegex = /<link\b[^>]*?\b(?:rel|href)\s*=\s*["'][^"']*["'][^>]*?\b(?:rel|href)\s*=\s*["'][^"']*["'][^>]*?>/gi;
   const candidates = [];
@@ -148,25 +211,27 @@ function parseLargestSize(sizes) {
   return max;
 }
 
+// ── URL 规范化 ──────────────────────────────────────────
 function normalizeUrl(raw) {
   const value = raw.trim();
   if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) {
-    throw serviceError("INVALID_URL", "Only HTTP and HTTPS URLs are supported");
+    throw new ServiceError("INVALID_URL");
   }
   const input = /^https?:\/\//i.test(value) ? value : `https://${value}`;
   let url;
   try {
     url = new URL(input);
   } catch {
-    throw serviceError("INVALID_URL", "Invalid URL");
+    throw new ServiceError("INVALID_URL");
   }
 
   if (!/^https?:$/.test(url.protocol) || !url.hostname) {
-    throw serviceError("INVALID_URL", "Only HTTP and HTTPS URLs are supported");
+    throw new ServiceError("INVALID_URL");
   }
   return new URL(url.origin);
 }
 
+// ── 图片校验 ────────────────────────────────────────────
 function detectContentType(url, headers) {
   const contentType = headers?.get("content-type") || "";
   if (contentType.startsWith("image/")) return contentType.split(";")[0].trim();
@@ -223,9 +288,11 @@ async function readBodyWithLimit(response, maxBytes) {
   return Buffer.concat(chunks, total);
 }
 
-async function fetchFavicon(faviconUrl) {
+// ── 实际抓取（带剩余时间预算） ────────────────────────────
+async function fetchSingleFavicon(faviconUrl, remainingMs) {
+  const deadline = Date.now() + Math.max(1000, remainingMs);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  const timer = setTimeout(() => controller.abort(), Math.max(500, remainingMs));
 
   try {
     const { response, finalUrl } = await safeFetch(faviconUrl, {
@@ -234,6 +301,7 @@ async function fetchFavicon(faviconUrl) {
         "User-Agent": "favicon-api/1.0 (favicon fetcher; +https://github.com/VeteranBoLuo/favicon-api)",
       },
     });
+    const nowRemaining = Math.max(0, deadline - Date.now());
     if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
 
     const buffer = await readBodyWithLimit(response, MAX_FAVICON_SIZE);
@@ -244,68 +312,195 @@ async function fetchFavicon(faviconUrl) {
   }
 }
 
+// ── 聚合源 ──────────────────────────────────────────────
 const AGGREGATOR_BUILDERS = [
-  (host) => `https://favicone.com/${host}?s=64`,
-  (host) => `https://favicon.yandex.net/favicon/v2/https://${host}?size=32`,
+  { name: "favicone", build: (host) => `https://favicone.com/${host}?s=64` },
+  { name: "yandex", build: (host) => `https://favicon.yandex.net/favicon/v2/https://${host}?size=32` },
 ];
 
-const AGGREGATOR_PLACEHOLDER_HASHES = new Set([
-  "ebfb7deb2782f551f757a9077203194dedeb132c091005204135905134e4b0e7",
-]);
-
-async function fetchFromAggregator(hostname) {
-  for (const buildUrl of AGGREGATOR_BUILDERS) {
-    const sourceUrl = buildUrl(hostname);
-    try {
-      const { buffer, contentType, finalUrl } = await fetchFavicon(sourceUrl);
-      const hash = createHash("sha256").update(buffer).digest("hex");
-      if (AGGREGATOR_PLACEHOLDER_HASHES.has(hash)) continue;
-      return { buffer, contentType, sourceUrl: finalUrl };
-    } catch {
-      // Try the next source.
-    }
+async function fetchFromAggregator(hostname, sourceName, sourceUrl, remainingMs) {
+  // 聚合源请求至少 4 秒超时，不受总预算剩余时间影响
+  const minTimeout = Math.max(remainingMs, 4000);
+  try {
+    const { buffer, contentType, finalUrl } = await fetchSingleFavicon(sourceUrl, minTimeout);
+    const hash = createHash("sha256").update(buffer).digest("hex");
+    if (AGGREGATOR_PLACEHOLDER_HASHES.has(hash)) return null;
+    return { buffer, contentType, sourceUrl: finalUrl, sourceType: sourceName };
+  } catch {
+    return null;
   }
-  return null;
 }
 
-export async function getFavicon(rawUrl) {
-  const url = normalizeUrl(rawUrl);
-  const cacheKey = url.origin;
-  const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.at < CACHE_TTL) return cached.result;
+// ── 竞速抓取 ────────────────────────────────────────────
+const SOURCE_TYPES = {
+  DECLARED: "declared",
+  FAVICON_ICO: "favicon",
+  FAVICONE: "favicone",
+  YANDEX: "yandex",
+};
+
+/**
+ * 顺序抓取（旧版逻辑但使用新的总时间预算和错误处理）
+ * 先 HTML → 声明图标 → 若失败查 /favicon.ico → 聚合源兜底
+ */
+async function fetchSequential(pageUrl, hostname, deadlineMs) {
+  const overallDeadline = Date.now() + Math.max(2000, deadlineMs);
+  function remaining() { return Math.max(500, overallDeadline - Date.now()); }
 
   let html = "";
-  let pageUrl = url.toString();
-  const htmlController = new AbortController();
-  const htmlTimer = setTimeout(() => htmlController.abort(), HTML_FETCH_TIMEOUT);
+  let pageRedirectedUrl = pageUrl;
+
+  // 1. 抓取 HTML
+  const acHtml = new AbortController();
   try {
     const fetched = await safeFetch(pageUrl, {
-      signal: htmlController.signal,
+      signal: acHtml.signal,
       headers: { "User-Agent": "favicon-api/1.0", Accept: "text/html" },
     });
-    pageUrl = fetched.finalUrl;
+    pageRedirectedUrl = fetched.finalUrl;
     if (fetched.response.ok) {
       html = (await readBodyWithLimit(fetched.response, MAX_HTML_SIZE)).toString("utf8");
     }
   } catch (error) {
     if (error.code === "PRIVATE_ADDRESS" || error.code === "DNS_ERROR") throw error;
-  } finally {
-    clearTimeout(htmlTimer);
   }
 
-  const faviconUrl = html ? extractFaviconUrl(html, pageUrl) : new URL("/favicon.ico", pageUrl).toString();
-  let result;
+  // 2. 尝试声明图标
+  const faviconUrl = html ? extractFaviconUrl(html, pageRedirectedUrl) : new URL("/favicon.ico", pageRedirectedUrl).toString();
   try {
-    const fetched = await fetchFavicon(faviconUrl);
-    result = { buffer: fetched.buffer, contentType: fetched.contentType, sourceUrl: fetched.finalUrl };
-  } catch (error) {
-    result = await fetchFromAggregator(url.hostname);
-    if (!result) throw error;
+    const icon = await fetchSingleFavicon(faviconUrl, remaining());
+    runtimeMetrics.increment("faviconIcoSuccess");
+    return { ...icon, sourceType: "favicon" };
+  } catch {
+    // fall through to aggregators
   }
 
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-  cache.set(cacheKey, { at: Date.now(), result });
-  return result;
+  // 3. 聚合源兜底
+  for (const { name, build } of AGGREGATOR_BUILDERS) {
+    const sourceUrl = build(hostname);
+    try {
+      const result = await fetchFromAggregator(hostname, name, sourceUrl, remaining());
+      if (result) return result;
+    } catch {
+      // try next
+    }
+  }
+
+  return null;
+}
+
+// ── getFavicon 入口（inFlight 合并 + 缓存 + 限流） ────────
+export async function getFavicon(rawUrl) {
+  const url = normalizeUrl(rawUrl);
+  const originKey = url.origin;
+  const now = Date.now();
+
+  runtimeMetrics.increment("totalRequests");
+
+  // 1. 成功缓存
+  const cached = successCache.get(originKey);
+  if (cached && now - cached.at < SUCCESS_CACHE_TTL_MS) {
+    runtimeMetrics.increment("cacheHitCount");
+    return { ...cached.result, sourceType: "cache" };
+  }
+
+  // 2. 失败缓存（非 retryable 的长缓存错误也返回）
+  const failCached = failureCache.get(originKey);
+  if (failCached) {
+    const ttl = getFailTtl(failCached.errorCode);
+    if (ttl > 0 && now - failCached.at < ttl) {
+      runtimeMetrics.increment("cacheHitCount");
+      const err = new ServiceError(failCached.errorCode);
+      throw err;
+    }
+    // 短缓存的 retryable 错误过期后也清除
+    if (ttl === 0 || now - failCached.at >= ttl) {
+      failureCache.delete(originKey);
+    }
+  }
+
+  // 3. inFlight 合并
+  const existingReq = inFlightOrigins.get(originKey);
+  if (existingReq) {
+    runtimeMetrics.increment("deduplicatedCount");
+    const result = await existingReq;
+    return { ...result, sourceType: "cache" };
+  }
+
+  runtimeMetrics.increment("cacheMissCount");
+
+  // 4. 尝试持久缓存（磁盘）
+  try {
+    const persistent = await readPersistentCache(originKey);
+    if (persistent) {
+      // 填回内存缓存
+      cachePrune(successCache, SUCCESS_CACHE_MAX);
+      successCache.set(originKey, { at: Date.now(), result: persistent });
+      runtimeMetrics.increment("cacheHitCount");
+      return { ...persistent, sourceType: "cache" };
+    }
+  } catch {
+    // 持久缓存读取失败不阻塞
+  }
+
+  // 5. 等待限流许可
+  const release = await limiter.acquire();
+
+  // 5. 创建真实抓取 Promise
+  const fetchPromise = (async () => {
+    try {
+      const pageUrl = url.toString();
+
+      const result = await fetchSequential(pageUrl, url.hostname, TOTAL_TIMEOUT_MS);
+
+      if (!result || !result.buffer) {
+        // 所有来源失败
+        const err = new ServiceError("ICON_NOT_FOUND");
+        const ttl = getFailTtl("ICON_NOT_FOUND");
+        if (ttl > 0) {
+          cachePrune(failureCache, SUCCESS_CACHE_MAX);
+          failureCache.set(originKey, { at: Date.now(), errorCode: "ICON_NOT_FOUND", result: err });
+        }
+        runtimeMetrics.increment("notFoundCount");
+        throw err;
+      }
+
+      // 成功——写入缓存
+      cachePrune(successCache, SUCCESS_CACHE_MAX);
+      successCache.set(originKey, { at: Date.now(), result });
+
+      // 异步写入持久缓存（不阻塞）
+      writePersistentCache(originKey, result);
+
+      return result;
+    } catch (err) {
+      const se = err instanceof ServiceError ? err : classifyError(err);
+
+      // 根据错误类型写入失败缓存
+      const ttl = getFailTtl(se.code);
+      if (ttl > 0) {
+        cachePrune(failureCache, SUCCESS_CACHE_MAX);
+        failureCache.set(originKey, { at: Date.now(), errorCode: se.code, result: se });
+      }
+
+      // 更新运行时指标
+      if (se.code === "UPSTREAM_TIMEOUT") runtimeMetrics.increment("timeoutCount");
+      else if (se.code === "DNS_ERROR") runtimeMetrics.increment("dnsErrorCount");
+      else if (se.code === "ICON_NOT_FOUND") runtimeMetrics.increment("notFoundCount");
+      else if (se.code === "UPSTREAM_ERROR") runtimeMetrics.increment("upstreamErrorCount");
+      else if (se.code === "PRIVATE_ADDRESS") runtimeMetrics.increment("privateAddressCount");
+      else if (se.code === "QUEUE_FULL") runtimeMetrics.increment("queueRejectedCount");
+      else runtimeMetrics.increment("internalErrorCount");
+
+      throw se;
+    } finally {
+      release();
+      inFlightOrigins.delete(originKey);
+    }
+  })();
+
+  inFlightOrigins.set(originKey, fetchPromise);
+  return fetchPromise;
 }
 
 export function generateETag(buffer) {

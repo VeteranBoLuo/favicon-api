@@ -139,3 +139,54 @@ test("rejects invalid target URLs", async () => {
   const response = await fetch(`${baseUrl}/?url=file:///etc/passwd`);
   assert.equal(response.status, 400);
 });
+
+test("serves runtime metrics endpoint", async () => {
+  const response = await fetch(`${baseUrl}/runtime`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "ok");
+  assert.equal(typeof body.active, "number");
+  assert.equal(typeof body.queued, "number");
+  assert.equal(typeof body.concurrency, "number");
+  assert.equal(typeof body.totalRequests, "number");
+  assert.equal(typeof body.successCacheEntries, "number");
+  assert.equal(typeof body.cacheHitCount, "number");
+});
+
+test("serves runtime metrics behind a path prefix", async () => {
+  const response = await fetch(`${baseUrl}/favimg/runtime`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "ok");
+});
+
+test("runtime metrics has no-store cache control", async () => {
+  const response = await fetch(`${baseUrl}/runtime`);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("response includes X-Favicon headers on favicon requests", async () => {
+  // 使用 INVALID_URL 触发错误路径（file:// 快速失败，无 DNS 后遗症）
+  const response = await fetch(`${baseUrl}/?url=://bad`);
+  assert.ok(response.headers.has("x-favicon-duration-ms"), "should have X-Favicon-Duration-Ms");
+  assert.ok(response.headers.has("x-favicon-cache"), "should have X-Favicon-Cache");
+  const body = await response.json();
+  assert.ok(body.code || body.error, "error response should have code or error");
+});
+
+test("structured error response includes code, retryable and error fields", async () => {
+  const response = await fetch(`${baseUrl}/?url=file:///etc/passwd`);
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.code, "INVALID_URL");
+  assert.equal(body.retryable, false);
+  assert.ok(body.error);
+});
+
+test("new favicon endpoint returns correct status for 400 due to oversized domain", async () => {
+  const longDomain = "a".repeat(600) + ".com";
+  const response = await fetch(`${baseUrl}/?url=${longDomain}`);
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.code, "INVALID_URL");
+});

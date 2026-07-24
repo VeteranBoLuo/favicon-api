@@ -1,6 +1,10 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { getFavicon, generateETag } from "./favicon.js";
+import { ServiceError, classifyError } from "./error.js";
+import { limiter } from "./limiter.js";
+import { runtimeMetrics } from "./runtime-metrics.js";
+import { getCacheStats } from "./favicon.js";
 import { usageCounter } from "./usage-counter.js";
 import { usageQualifier } from "./usage-qualifier.js";
 
@@ -14,6 +18,10 @@ const PUBLIC_ASSETS = new Map([
   ["apple-touch-icon.png", { contentType: "image/png", body: readFileSync(new URL("../public/apple-touch-icon.png", import.meta.url)) }],
   ["site.webmanifest", { contentType: "application/manifest+json; charset=utf-8", body: readFileSync(new URL("../public/site.webmanifest", import.meta.url)) }],
 ]);
+
+const HEDGED_FETCH_ENABLED = process.env.FAVICON_HEDGED_FETCH_ENABLED !== "false";
+const QUEUE_ENABLED = process.env.FAVICON_QUEUE_ENABLED !== "false";
+const FAILURE_CACHE_ENABLED = process.env.FAVICON_FAILURE_CACHE_ENABLED !== "false";
 
 export async function handle(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -49,12 +57,42 @@ export async function handle(req, res) {
     return;
   }
 
-  // Accept /health as well as a reverse-proxy mount such as /favimg/health.
+  // /health
   if (parsedUrl.pathname === "/health" || parsedUrl.pathname.endsWith("/health")) {
     sendJson(res, 200, { status: "ok" });
     return;
   }
 
+  // /runtime
+  if (parsedUrl.pathname === "/runtime" || parsedUrl.pathname.endsWith("/runtime")) {
+    const cs = getCacheStats();
+    const s = runtimeMetrics.snapshot();
+    sendJson(res, 200, {
+      status: "ok",
+      active: limiter.active,
+      queued: limiter.queued,
+      concurrency: limiter.concurrency,
+      inFlightOrigins: cs.inFlight,
+      successCacheEntries: cs.successEntries,
+      failureCacheEntries: cs.failureEntries,
+      hedgedFetchEnabled: HEDGED_FETCH_ENABLED,
+      queueEnabled: QUEUE_ENABLED,
+      failureCacheEnabled: FAILURE_CACHE_ENABLED,
+      totalRequests: s.totalRequests,
+      successCount: s.successCount,
+      timeoutCount: s.timeoutCount,
+      queueRejectedCount: s.queueRejectedCount,
+      deduplicatedCount: s.deduplicatedCount,
+      cacheHitCount: s.cacheHitCount,
+      cacheMissCount: s.cacheMissCount,
+      averageDuration: s.averageDuration,
+      p50Duration: s.p50Duration,
+      p95Duration: s.p95Duration,
+    }, { "Cache-Control": "no-store" });
+    return;
+  }
+
+  // /stats
   if (parsedUrl.pathname === "/stats" || parsedUrl.pathname.endsWith("/stats")) {
     sendJson(res, 200, { count: await usageCounter.value() }, {
       "Cache-Control": "no-store",
@@ -69,7 +107,7 @@ export async function handle(req, res) {
     return;
   }
 
-  // The same handler can be mounted at / or behind a prefix such as /favimg/.
+  // Demo page
   if (!parsedUrl.search) {
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
@@ -86,40 +124,61 @@ export async function handle(req, res) {
 
 async function serveFavicon(req, res, domain, countUsage) {
   if (domain.length > 512 || domain.includes("\n") || domain.includes("\r")) {
-    sendJson(res, 400, { error: "Invalid URL" });
+    sendJson(res, 400, { code: "INVALID_URL", retryable: false, error: "Invalid URL" });
     return;
   }
+
+  const start = performance.now();
 
   try {
     const result = await getFavicon(domain);
     const etag = generateETag(result.buffer);
+    const durationMs = Math.round(performance.now() - start);
+
     if (countUsage && usageQualifier.shouldCountRequest(req, domain)) {
       await usageCounter.increment();
     }
 
-    res.setHeader("Cache-Control", "public, max-age=3600");
-    res.setHeader("ETag", etag);
+    runtimeMetrics.recordDuration(durationMs);
+
+    const headers = {
+      "Cache-Control": "public, max-age=3600",
+      "ETag": etag,
+      "X-Favicon-Cache": result.sourceType === "cache" ? "hit" : "miss",
+      "X-Favicon-Duration-Ms": String(durationMs),
+      "X-Favicon-Source-Type": result.sourceType || "unknown",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      "Content-Type": result.contentType,
+      "Content-Length": result.buffer.length,
+    };
 
     if (req.headers["if-none-match"] === etag) {
-      res.writeHead(304);
+      res.writeHead(304, headers);
       res.end();
       return;
     }
 
-    res.writeHead(200, {
-      "Content-Type": result.contentType,
-      "Content-Length": result.buffer.length,
-      "X-Favicon-Source": result.sourceUrl,
-      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-    });
+    res.writeHead(200, headers);
     res.end(result.buffer);
   } catch (error) {
-    const message = error.message || "Failed to fetch favicon";
-    const status = error.code === "PRIVATE_ADDRESS" ? 403
-      : error.code === "INVALID_URL" ? 400
-      : error.code === "DNS_ERROR" ? 404
-      : 502;
-    sendJson(res, status, { error: message });
+    const durationMs = Math.round(performance.now() - start);
+    const se = error instanceof ServiceError ? error : classifyError(error);
+
+    // 非 INVALID_URL 的错误记录持续时间
+    if (se.code !== "INVALID_URL") {
+      runtimeMetrics.recordDuration(durationMs);
+    }
+
+    const body = se.toJSON();
+    const headers = {
+      "X-Favicon-Cache": "miss",
+      "X-Favicon-Duration-Ms": String(durationMs),
+      "Content-Type": "application/json; charset=utf-8",
+    };
+    if (se.retryable) {
+      headers["Retry-After"] = String(limiter.retryAfter);
+    }
+    sendJson(res, se.httpStatus, body, headers);
   }
 }
 

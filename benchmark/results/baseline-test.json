@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "timestamp": "2026-07-24T10:50:40.049Z",
+    "totalUrls": 5,
+    "uniqueOrigins": 5
+  },
+  "summary": {
+    "total": 5,
+    "success": 5,
+    "failed": 0,
+    "successRate": 100,
+    "durationMs": 2445,
+    "requestsPerSecond": 2.04
+  },
+  "latency": {
+    "p50": 431,
+    "p90": 930,
+    "p95": 930,
+    "max": 930,
+    "allP50": 431,
+    "allP90": 930,
+    "allP95": 930
+  },
+  "cache": {
+    "cacheHit": 0,
+    "cacheMiss": 5,
+    "hitRate": 0
+  },
+  "errorCodeDistribution": {},
+  "sourceTypeDistribution": {
+    "https://www.baidu.com/favicon.ico": 1,
+    "https://static.zhihu.com/heifetz/favicon.ico": 1,
+    "https://img.alicdn.com/tps/i3/T1OjaVFl4dXXa.JOZB-114-114.png": 1,
+    "https://img.alicdn.com/tfs/TB1XlF3RpXXXXc6XXXXXXXXXXXX-16-16.png": 1,
+    "https://mat1.gtimg.com/qqcdn/qqindex2021/favicon.ico": 1
+  }
+}

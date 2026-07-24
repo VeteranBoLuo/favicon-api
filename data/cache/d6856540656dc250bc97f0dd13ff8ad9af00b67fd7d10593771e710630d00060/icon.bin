@@ -1,0 +1,12 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <defs>
+    <linearGradient id="seeker-favicon-bg" x1="8" y1="5" x2="57" y2="61" gradientUnits="userSpaceOnUse"><stop stop-color="#CD9CFA"/><stop offset=".52" stop-color="#955DE8"/><stop offset="1" stop-color="#5024C1"/></linearGradient>
+    <radialGradient id="seeker-favicon-glow" cx="0" cy="0" r="1" gradientTransform="translate(17 10) rotate(46) scale(43)"><stop stop-color="#E6C6FF" stop-opacity=".48"/><stop offset=".62" stop-color="#C98CFF" stop-opacity=".08"/><stop offset="1" stop-color="#6E35C6" stop-opacity=".18"/></radialGradient>
+    <linearGradient id="seeker-favicon-orbit" x1="15" y1="11" x2="48" y2="55" gradientUnits="userSpaceOnUse"><stop stop-color="#F0E8FF" stop-opacity=".82"/><stop offset="1" stop-color="#D8C8FF" stop-opacity=".68"/></linearGradient>
+    <mask id="seeker-favicon-mask"><rect width="64" height="64" fill="white"/><circle cx="17.1" cy="20.2" r="2.7" fill="black"/><circle cx="45.8" cy="42" r="2.7" fill="black"/></mask>
+  </defs>
+  <rect x=".2" y=".2" width="63.6" height="63.6" rx="15.8" fill="url(#seeker-favicon-bg)"/><rect x=".2" y=".2" width="63.6" height="63.6" rx="15.8" fill="url(#seeker-favicon-glow)"/><rect x=".4" y=".4" width="63.2" height="63.2" rx="15.6" stroke="#F5E9FF" stroke-opacity=".42" stroke-width=".35"/>
+  <path d="M26.006 12.396A20.5 20.5 0 0 1 52.189 35.56M39.011 51.264A20.5 20.5 0 0 1 12.109 27.041" stroke="url(#seeker-favicon-orbit)" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M17.1 20.5H35.5A5.15 5.15 0 0 1 35.5 30.8H28.7A5.3 5.3 0 0 0 28.7 41.4H45.8" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" mask="url(#seeker-favicon-mask)"/>
+  <circle cx="17.1" cy="20.2" r="4.05" stroke="white" stroke-width="2.7"/><circle cx="45.8" cy="42" r="4.05" stroke="white" stroke-width="2.7"/>
+</svg>
