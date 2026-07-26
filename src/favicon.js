@@ -223,16 +223,62 @@ async function readBodyWithLimit(response, maxBytes) {
 }
 
 // ── 带超时和信号管理的抓取 ──────────────────────────────
+function assertAbortSignal(signal) {
+  if (
+    !signal ||
+    typeof signal.addEventListener !== "function" ||
+    typeof signal.removeEventListener !== "function" ||
+    typeof signal.aborted !== "boolean"
+  ) {
+    const error = new TypeError("Expected AbortSignal");
+    error.code = "INVALID_ABORT_SIGNAL";
+    throw error;
+  }
+}
+
+function remainingMs(deadline, capMs) {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new ServiceError("UPSTREAM_TIMEOUT");
+  return Math.min(capMs, remaining);
+}
+
+function waitForPromiseWithSignal(promise, signal) {
+  assertAbortSignal(signal);
+  if (signal.aborted) return Promise.reject(signal.reason);
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(signal.reason || new ServiceError("UPSTREAM_TIMEOUT"));
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 async function fetchWithTimeout(url, { parentSignal, timeoutMs, headers }) {
+  assertAbortSignal(parentSignal);
   const controller = new AbortController();
-  const abortFromParent = () => controller.abort(parentSignal?.reason || new Error("Aborted"));
-  parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  const abortFromParent = () => controller.abort(parentSignal.reason || new Error("Aborted"));
+  if (parentSignal.aborted) abortFromParent();
+  else parentSignal.addEventListener("abort", abortFromParent, { once: true });
   const timer = setTimeout(() => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")), timeoutMs);
   try {
     return await safeFetch(url, { signal: controller.signal, headers });
   } finally {
     clearTimeout(timer);
-    parentSignal?.removeEventListener("abort", abortFromParent);
+    parentSignal.removeEventListener("abort", abortFromParent);
   }
 }
 
@@ -242,146 +288,281 @@ const AGGREGATOR_BUILDERS = [
   { name: "yandex", build: (host) => `https://favicon.yandex.net/favicon/v2/https://${host}?size=32` },
 ];
 
-async function fetchFromAggregator(hostname, sourceName, sourceUrl, parentSignal) {
-  // 聚合源不超过其自身超时，也不超过总剩余预算
-  const budgetRemaining = Date.now() - overallDeadlineStart + TOTAL_TIMEOUT_MS;
-  const timeoutMs = Math.min(AGGREGATOR_TIMEOUT_MS, Math.max(500, budgetRemaining));
-  if (timeoutMs <= 500) throw new ServiceError("UPSTREAM_TIMEOUT");
-  try {
-    const result = await fetchSingleFavicon(sourceUrl, timeoutMs, parentSignal);
-    const hash = createHash("sha256").update(result.buffer).digest("hex");
-    if (AGGREGATOR_PLACEHOLDER_HASHES.has(hash)) return null;
-    return { ...result, sourceType: sourceName };
-  } catch { return null; }
-}
-
 async function fetchSingleFavicon(faviconUrl, timeoutMs, parentSignal) {
+  assertAbortSignal(parentSignal);
   const controller = new AbortController();
-  const abortParent = () => controller.abort(parentSignal?.reason || new Error("Aborted"));
-  parentSignal?.addEventListener("abort", abortParent, { once: true });
+  const abortParent = () => controller.abort(parentSignal.reason || new Error("Aborted"));
+  if (parentSignal.aborted) abortParent();
+  else parentSignal.addEventListener("abort", abortParent, { once: true });
   const timer = setTimeout(() => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")), timeoutMs);
   try {
     const { response, finalUrl } = await safeFetch(faviconUrl, {
       signal: controller.signal,
       headers: { "User-Agent": "favicon-api/1.0 (favicon fetcher; +https://github.com/VeteranBoLuo/favicon-api)" },
     });
-    if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 410) {
+        throw new ServiceError("ICON_NOT_FOUND");
+      }
+      throw new ServiceError("UPSTREAM_ERROR");
+    }
     const buffer = await readBodyWithLimit(response, MAX_FAVICON_SIZE);
-    if (!isValidImageBuffer(buffer)) throw new Error("Not a valid image");
+    if (!isValidImageBuffer(buffer)) throw new ServiceError("ICON_NOT_FOUND");
     return { buffer, contentType: detectContentType(finalUrl, response.headers), finalUrl };
   } finally {
     clearTimeout(timer);
-    parentSignal?.removeEventListener("abort", abortParent);
+    parentSignal.removeEventListener("abort", abortParent);
   }
 }
 
 function delayedAttempt(delayMs, signal, factory) {
+  assertAbortSignal(signal);
   return new Promise((resolve, reject) => {
     if (signal.aborted) { reject(signal.reason); return; }
-    const timer = setTimeout(async () => {
-      try { resolve(await factory()); }
-      catch (error) { reject(error); }
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const onAbort = () => settle(
+      reject,
+      signal.reason || new ServiceError("UPSTREAM_TIMEOUT"),
+    );
+    const timer = setTimeout(() => {
+      Promise.resolve()
+        .then(factory)
+        .then(
+          (value) => settle(resolve, value),
+          (error) => settle(reject, error),
+        );
     }, delayMs);
-    signal.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
-// ── 整体抓取截止时间（被 getFavicon 重写，但也在函数内引用） ──
-let overallDeadlineStart = 0;
+async function fetchRootFavicon({ originUrl, deadline, signal }) {
+  const faviconUrl = new URL("/favicon.ico", originUrl).toString();
+  const result = await fetchSingleFavicon(
+    faviconUrl,
+    remainingMs(deadline, ICON_TIMEOUT_MS),
+    signal,
+  );
+  return { ...result, sourceType: "favicon" };
+}
+
+async function fetchDeclaredFavicon({
+  originUrl,
+  attemptedRootUrl,
+  deadline,
+  signal,
+}) {
+  const fetched = await fetchWithTimeout(originUrl, {
+    parentSignal: signal,
+    timeoutMs: remainingMs(deadline, HTML_TIMEOUT_MS),
+    headers: { "User-Agent": "favicon-api/1.0", Accept: "text/html" },
+  });
+
+  if (!fetched.response.ok) {
+    if (fetched.response.status === 404 || fetched.response.status === 410) {
+      throw new ServiceError("ICON_NOT_FOUND");
+    }
+    throw new ServiceError("UPSTREAM_ERROR");
+  }
+
+  const html = (await readBodyWithLimit(
+    fetched.response,
+    MAX_HTML_SIZE,
+  )).toString("utf8");
+  const declaredUrl = extractFaviconUrl(html, fetched.finalUrl);
+  if (declaredUrl === attemptedRootUrl) {
+    throw new ServiceError("ICON_NOT_FOUND");
+  }
+
+  const result = await fetchSingleFavicon(
+    declaredUrl,
+    remainingMs(deadline, ICON_TIMEOUT_MS),
+    signal,
+  );
+  const redirectedRootUrl = new URL("/favicon.ico", fetched.finalUrl).toString();
+  return {
+    ...result,
+    sourceType: declaredUrl === redirectedRootUrl ? "favicon" : "declared",
+  };
+}
+
+async function fetchFromAggregator({
+  name,
+  hostname,
+  sourceUrl,
+  deadline,
+  signal,
+}) {
+  const result = await fetchSingleFavicon(
+    sourceUrl,
+    remainingMs(deadline, AGGREGATOR_TIMEOUT_MS),
+    signal,
+  );
+  const hash = createHash("sha256").update(result.buffer).digest("hex");
+  if (AGGREGATOR_PLACEHOLDER_HASHES.has(hash)) {
+    throw new ServiceError("ICON_NOT_FOUND");
+  }
+  return { ...result, sourceType: name };
+}
+
+const AGGREGATE_ERROR_PRIORITY = [
+  "PRIVATE_ADDRESS",
+  "INVALID_URL",
+  "DNS_ERROR",
+  "UPSTREAM_TIMEOUT",
+  "UPSTREAM_ERROR",
+  "INTERNAL_ERROR",
+  "ICON_NOT_FOUND",
+];
+
+function pickAggregateError(error) {
+  const errors = error instanceof AggregateError ? error.errors : [error];
+  const classified = errors.map((item) => (
+    item instanceof ServiceError ? item : classifyError(item)
+  ));
+
+  for (const code of AGGREGATE_ERROR_PRIORITY) {
+    const match = classified.find((item) => item.code === code);
+    if (match) return match;
+  }
+  return new ServiceError("INTERNAL_ERROR");
+}
 
 // ── Hedged Fetch ───────────────────────────────────────────
-async function fetchHedged(pageUrl, hostname) {
-  overallDeadlineStart = Date.now();
-  const rootController = new AbortController();
-  const totalTimer = setTimeout(() => rootController.abort(new ServiceError("UPSTREAM_TIMEOUT")), TOTAL_TIMEOUT_MS);
-
-  // 先获取 HTML（有独立超时）
-  let html = "";
-  let pageRedirectedUrl = pageUrl;
-  try {
-    const fetched = await fetchWithTimeout(pageUrl, { parentSignal: rootController, timeoutMs: HTML_TIMEOUT_MS, headers: { "User-Agent": "favicon-api/1.0", Accept: "text/html" } });
-    pageRedirectedUrl = fetched.finalUrl;
-    if (fetched.response.ok) html = (await readBodyWithLimit(fetched.response, MAX_HTML_SIZE)).toString("utf8");
-  } catch (error) {
-    if (error.code === "PRIVATE_ADDRESS" || error.code === "DNS_ERROR") { clearTimeout(totalTimer); rootController.abort(); throw error; }
-  }
-
-  // 构建图标 URL
-  const declaredUrl = html ? extractFaviconUrl(html, pageRedirectedUrl) : null;
-  const rootFaviconUrl = new URL("/favicon.ico", pageRedirectedUrl).toString();
-
-  // 竞速尝试
-  const attempts = [];
-
-  // /favicon.ico（始终尝试）
-  attempts.push((async () => {
-    const result = await fetchSingleFavicon(rootFaviconUrl, ICON_TIMEOUT_MS, rootController);
-    return { ...result, sourceType: "favicon" };
-  })());
-
-  // HTML 声明图标（如果有）
-  if (declaredUrl && declaredUrl !== rootFaviconUrl) {
-    attempts.push((async () => {
-      const result = await fetchSingleFavicon(declaredUrl, ICON_TIMEOUT_MS, rootController);
-      return { ...result, sourceType: "declared" };
-    })());
-  }
-
-  // 延迟启动聚合源
-  attempts.push(delayedAttempt(FIRST_HEDGE_MS, rootController, () => fetchFromAggregator(hostname, "favicone", AGGREGATOR_BUILDERS[0].build(hostname), rootController)));
-  attempts.push(delayedAttempt(SECOND_HEDGE_MS, rootController, () => fetchFromAggregator(hostname, "yandex", AGGREGATOR_BUILDERS[1].build(hostname), rootController)));
+export async function fetchHedged(pageUrl, hostname, options = {}) {
+  const totalTimeoutMs = options.totalTimeoutMs ?? TOTAL_TIMEOUT_MS;
+  const deadline = Date.now() + totalTimeoutMs;
+  const controller = new AbortController();
+  const signal = controller.signal;
+  const totalTimer = setTimeout(
+    () => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")),
+    totalTimeoutMs,
+  );
+  const validateOrigin = options.validateOrigin || assertPublicHost;
+  const fetchRoot = options.fetchRoot || fetchRootFavicon;
+  const fetchDeclared = options.fetchDeclared || fetchDeclaredFavicon;
+  const fetchAggregator = options.fetchAggregator || fetchFromAggregator;
+  const rootFaviconUrl = new URL("/favicon.ico", pageUrl).toString();
 
   try {
-    const result = await Promise.any(attempts);
-    rootController.abort();
+    await waitForPromiseWithSignal(validateOrigin(hostname), signal);
+
+    const sourceContext = {
+      originUrl: pageUrl,
+      hostname,
+      attemptedRootUrl: rootFaviconUrl,
+      deadline,
+      signal,
+    };
+    const attempts = [
+      fetchRoot(sourceContext),
+      fetchDeclared(sourceContext),
+      delayedAttempt(
+        options.firstHedgeMs ?? FIRST_HEDGE_MS,
+        signal,
+        () => fetchAggregator({
+          ...sourceContext,
+          name: AGGREGATOR_BUILDERS[0].name,
+          sourceUrl: AGGREGATOR_BUILDERS[0].build(hostname),
+        }),
+      ),
+      delayedAttempt(
+        options.secondHedgeMs ?? SECOND_HEDGE_MS,
+        signal,
+        () => fetchAggregator({
+          ...sourceContext,
+          name: AGGREGATOR_BUILDERS[1].name,
+          sourceUrl: AGGREGATOR_BUILDERS[1].build(hostname),
+        }),
+      ),
+    ];
+
+    let result;
+    try {
+      result = await Promise.any(attempts);
+    } catch (error) {
+      throw pickAggregateError(error);
+    }
+    controller.abort(new Error("Favicon source selected"));
     return result;
-  } catch (aggregateError) {
-    // 所有尝试都失败
-    return null;
   } finally {
     clearTimeout(totalTimer);
-    rootController.abort();
+    if (!signal.aborted) controller.abort(new Error("Favicon request finished"));
   }
 }
 
 // ── 顺序兜底（功能开关关闭时使用） ────────────────────────
 async function fetchSequentialFallback(pageUrl, hostname) {
-  overallDeadlineStart = Date.now();
-  const rootController = new AbortController();
-  const totalTimer = setTimeout(() => rootController.abort(new ServiceError("UPSTREAM_TIMEOUT")), TOTAL_TIMEOUT_MS);
+  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+  const controller = new AbortController();
+  const signal = controller.signal;
+  const totalTimer = setTimeout(
+    () => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")),
+    TOTAL_TIMEOUT_MS,
+  );
+  const attemptedRootUrl = new URL("/favicon.ico", pageUrl).toString();
+  const errors = [];
 
-  let html = "";
-  let pageRedirectedUrl = pageUrl;
   try {
-    const fetched = await fetchWithTimeout(pageUrl, { parentSignal: rootController, timeoutMs: HTML_TIMEOUT_MS, headers: { "User-Agent": "favicon-api/1.0", Accept: "text/html" } });
-    pageRedirectedUrl = fetched.finalUrl;
-    if (fetched.response.ok) html = (await readBodyWithLimit(fetched.response, MAX_HTML_SIZE)).toString("utf8");
-  } catch (error) {
-    if (error.code === "PRIVATE_ADDRESS" || error.code === "DNS_ERROR") { clearTimeout(totalTimer); rootController.abort(); throw error; }
+    await waitForPromiseWithSignal(assertPublicHost(hostname), signal);
+    const sourceContext = {
+      originUrl: pageUrl,
+      hostname,
+      attemptedRootUrl,
+      deadline,
+      signal,
+    };
+
+    for (const attempt of [
+      () => fetchRootFavicon(sourceContext),
+      () => fetchDeclaredFavicon(sourceContext),
+    ]) {
+      try {
+        return await attempt();
+      } catch (error) {
+        const classified = error instanceof ServiceError ? error : classifyError(error);
+        if (classified.code === "PRIVATE_ADDRESS" || classified.code === "INVALID_URL") {
+          throw classified;
+        }
+        errors.push(classified);
+      }
+    }
+
+    for (const { name, build } of AGGREGATOR_BUILDERS) {
+      try {
+        return await fetchFromAggregator({
+          ...sourceContext,
+          name,
+          sourceUrl: build(hostname),
+        });
+      } catch (error) {
+        errors.push(error instanceof ServiceError ? error : classifyError(error));
+      }
+    }
+
+    throw pickAggregateError(new AggregateError(errors));
+  } finally {
+    clearTimeout(totalTimer);
+    if (!signal.aborted) controller.abort(new Error("Favicon request finished"));
   }
-
-  const budgetRemaining = () => Math.max(500, TOTAL_TIMEOUT_MS - (Date.now() - overallDeadlineStart));
-  const faviconUrl = html ? extractFaviconUrl(html, pageRedirectedUrl) : new URL("/favicon.ico", pageRedirectedUrl).toString();
-  try {
-    const icon = await fetchSingleFavicon(faviconUrl, budgetRemaining(), rootController);
-    return { ...icon, sourceType: "favicon" };
-  } catch { /* fall through */ }
-
-  for (const { name, build } of AGGREGATOR_BUILDERS) {
-    try {
-      const result = await fetchFromAggregator(hostname, name, build(hostname), rootController);
-      if (result) return result;
-    } catch { /* try next */ }
-  }
-
-  return null;
 }
 
 // ── getFavicon 入口 ────────────────────────────────────────
-export async function getFavicon(rawUrl) {
+export async function getFavicon(rawUrl, dependencies = {}) {
   const url = normalizeUrl(rawUrl);
   const originKey = url.origin;
   const now = Date.now();
+  const requestLimiter = dependencies.limiter || limiter;
 
   runtimeMetrics.increment("totalRequests");
 
@@ -426,8 +607,10 @@ export async function getFavicon(rawUrl) {
   }
 
   const fetchPromise = (async () => {
-    const release = await limiter.acquire();
+    let release = null;
     try {
+      release = await requestLimiter.acquire();
+      runtimeMetrics.increment("externalFetchCount");
       const result = HEDGED_FETCH_ENABLED
         ? await fetchHedged(url.toString(), url.hostname)
         : await fetchSequentialFallback(url.toString(), url.hostname);
@@ -461,7 +644,7 @@ export async function getFavicon(rawUrl) {
       else runtimeMetrics.increment("internalErrorCount");
       throw se;
     } finally {
-      release();
+      release?.();
       inFlightOrigins.delete(originKey);
     }
   })();

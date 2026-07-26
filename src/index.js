@@ -80,6 +80,7 @@ export async function handle(req, res) {
       failureCacheEnabled: FAILURE_CACHE_ENABLED,
       totalRequests: s.totalRequests,
       successCount: s.successCount,
+      externalFetchCount: s.externalFetchCount,
       timeoutCount: s.timeoutCount,
       queueRejectedCount: s.queueRejectedCount,
       deduplicatedCount: s.deduplicatedCount,
@@ -132,6 +133,7 @@ async function serveFavicon(req, res, domain, countUsage) {
 
   try {
     const result = await getFavicon(domain);
+    runtimeMetrics.recordSuccess(result.sourceType);
     const etag = generateETag(result.buffer);
     const durationMs = Math.round(performance.now() - start);
 

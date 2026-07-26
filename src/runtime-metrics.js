@@ -8,6 +8,8 @@
 const metrics = {
   // 请求计数
   totalRequests: 0,
+  successCount: 0,
+  externalFetchCount: 0,
   // 成功来源分布
   directSuccess: 0,
   declaredSuccess: 0,
@@ -46,6 +48,17 @@ export const runtimeMetrics = {
     }
   },
 
+  recordSuccess(sourceType) {
+    metrics.successCount += 1;
+    const counter = {
+      declared: "declaredSuccess",
+      favicon: "faviconIcoSuccess",
+      favicone: "faviconeSuccess",
+      yandex: "yandexSuccess",
+    }[sourceType] || "directSuccess";
+    metrics[counter] += 1;
+  },
+
   /**
    * 返回当前快照（不包含原始延迟数组）
    */
@@ -59,12 +72,8 @@ export const runtimeMetrics = {
       successCacheEntries: 0,  // 由 favicon.js 更新
       failureCacheEntries: 0,
       totalRequests: metrics.totalRequests,
-      successCount:
-        metrics.directSuccess +
-        metrics.declaredSuccess +
-        metrics.faviconIcoSuccess +
-        metrics.faviconeSuccess +
-        metrics.yandexSuccess,
+      successCount: metrics.successCount,
+      externalFetchCount: metrics.externalFetchCount,
       timeoutCount: metrics.timeoutCount,
       queueRejectedCount: metrics.queueRejectedCount,
       deduplicatedCount: metrics.deduplicatedCount,

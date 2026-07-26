@@ -82,9 +82,47 @@ function serverUrl(domain) {
 const results = [];
 const errors = {};
 const allStartTimes = []; // 记录每个成功完成的时间戳，用于 UX 指标
+let maxActive = 0;
+let maxQueued = 0;
+let runtimeSampling = false;
+
+function runtimeUrl() {
+  if (EXTERNAL_URL) return `${EXTERNAL_URL.replace(/\/+$/, "")}/runtime`;
+  return `http://127.0.0.1:${DEFAULT_PORT}/runtime`;
+}
+
+async function readRuntime() {
+  try {
+    const response = await fetch(runtimeUrl(), {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function sampleRuntime() {
+  if (runtimeSampling) return;
+  runtimeSampling = true;
+  try {
+    const snapshot = await readRuntime();
+    if (!snapshot) return;
+    maxActive = Math.max(maxActive, Number(snapshot.active || 0));
+    maxQueued = Math.max(maxQueued, Number(snapshot.queued || 0));
+  } finally {
+    runtimeSampling = false;
+  }
+}
 
 console.error(`[benchmark] 开始测试 ${urls.length} 个 URL，并发 ${CONCURRENCY} ...`);
 
+const runtimeBefore = await readRuntime();
+await sampleRuntime();
+const runtimeSampler = setInterval(() => {
+  void sampleRuntime();
+}, 25);
 const startOverall = performance.now();
 
 let cursor = 0;
@@ -157,6 +195,9 @@ const runners = Array.from({ length: Math.min(CONCURRENCY, urls.length) }, async
 });
 
 await Promise.all(runners);
+clearInterval(runtimeSampler);
+await sampleRuntime();
+const runtimeAfter = await readRuntime();
 
 const totalDuration = Math.round(performance.now() - startOverall);
 
@@ -254,6 +295,26 @@ const report = {
     maxGapBetweenSuccesses: Math.round(maxGapBetweenSuccesses),
     successesPerSecond,
   },
+  runtime: {
+    maxActive,
+    maxQueued,
+    externalFetchCount:
+      runtimeBefore && runtimeAfter
+        ? Math.max(
+            0,
+            Number(runtimeAfter.externalFetchCount || 0) -
+              Number(runtimeBefore.externalFetchCount || 0),
+          )
+        : null,
+    deduplicatedCount:
+      runtimeBefore && runtimeAfter
+        ? Math.max(
+            0,
+            Number(runtimeAfter.deduplicatedCount || 0) -
+              Number(runtimeBefore.deduplicatedCount || 0),
+          )
+        : null,
+  },
 };
 
 // ── 保存 / 输出 ──────────────────────────────────────────
@@ -303,6 +364,10 @@ console.error(`    P95:           ${report.latency.allP95}`);
 console.error(`  ───────────────────────────────────────`);
 console.error(`  缓存:            ${report.cache.cacheHit} hit / ${report.cache.cacheMiss} miss`);
 console.error(`  缓存命中率:      ${report.cache.hitRate}%`);
+console.error(`  最大 active:      ${report.runtime.maxActive}`);
+console.error(`  最大 queued:      ${report.runtime.maxQueued}`);
+console.error(`  真实外部抓取:     ${report.runtime.externalFetchCount ?? 'N/A'}`);
+console.error(`  inFlight 合并:    ${report.runtime.deduplicatedCount ?? 'N/A'}`);
 console.error(`  ───────────────────────────────────────`);
 console.error(`  错误分布:`);
 for (const [code, count] of Object.entries(report.errorCodeDistribution).sort((a, b) => b[1] - a[1])) {

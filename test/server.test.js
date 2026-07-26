@@ -149,6 +149,7 @@ test("serves runtime metrics endpoint", async () => {
   assert.equal(typeof body.queued, "number");
   assert.equal(typeof body.concurrency, "number");
   assert.equal(typeof body.totalRequests, "number");
+  assert.equal(typeof body.externalFetchCount, "number");
   assert.equal(typeof body.successCacheEntries, "number");
   assert.equal(typeof body.cacheHitCount, "number");
 });
