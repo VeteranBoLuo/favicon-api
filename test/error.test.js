@@ -74,5 +74,18 @@ describe("classifyError", () => {
   it("falls back to INTERNAL_ERROR for unknown", () => {
     const err = classifyError(new Error("something weird"));
     assert.equal(err.code, "INTERNAL_ERROR");
+    assert.equal(err.message, 'Internal server error');
+  });
+
+  it('classifies fetch network causes, including nested connection attempts', () => {
+    for (const [code, expected] of [
+      ['ECONNREFUSED', 'UPSTREAM_ERROR'], ['ECONNRESET', 'UPSTREAM_ERROR'],
+      ['UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UPSTREAM_ERROR'], ['CERT_HAS_EXPIRED', 'UPSTREAM_ERROR'],
+      ['ENOTFOUND', 'DNS_ERROR'], ['EAI_AGAIN', 'DNS_ERROR'], ['UND_ERR_CONNECT_TIMEOUT', 'UPSTREAM_TIMEOUT'],
+    ]) {
+      const cause = new AggregateError([Object.assign(new Error('network failure'), { code })]);
+      const error = new TypeError('fetch failed', { cause });
+      assert.equal(classifyError(error).code, expected, code);
+    }
   });
 });

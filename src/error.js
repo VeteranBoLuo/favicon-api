@@ -54,6 +54,26 @@ export class ServiceError extends Error {
 export function classifyError(err) {
   if (err instanceof ServiceError) return err;
 
+  // Node fetch wraps DNS, TCP and TLS failures in TypeError('fetch failed').
+  // Read the structured cause rather than treating a remote failure as a bug.
+  const causes = [err];
+  const seen = new Set();
+  for (let index = 0; index < causes.length && index < 20; index += 1) {
+    const cause = causes[index];
+    if (!cause || seen.has(cause)) continue;
+    seen.add(cause);
+    const code = String(cause.code || '');
+    if (/^(?:ABORT_ERR|ETIMEDOUT|UND_ERR_(?:CONNECT|HEADERS|BODY)_TIMEOUT)$/.test(code) || cause.name === 'AbortError' || cause.name === 'TimeoutError') {
+      return new ServiceError('UPSTREAM_TIMEOUT');
+    }
+    if (/^(?:ENOTFOUND|EAI_AGAIN|EAI_FAIL)$/.test(code)) return new ServiceError('DNS_ERROR');
+    if (/^(?:ECONN|EHOST|ENET|EPIPE|EPROTO|ERR_TLS|ERR_SSL|CERT_|UNABLE_TO_|DEPTH_ZERO_|SELF_SIGNED_|UND_ERR_SOCKET)/.test(code)) {
+      return new ServiceError('UPSTREAM_ERROR');
+    }
+    if (cause.cause) causes.push(cause.cause);
+    if (Array.isArray(cause.errors)) causes.push(...cause.errors);
+  }
+
   const message = String(err?.message || err?.code || "");
 
   if (err?.code === "ABORT_ERR" || err?.name === "TimeoutError" || message.includes("timed out") || message.includes("timeout") || message.includes("abort")) {
@@ -74,5 +94,5 @@ export function classifyError(err) {
   if (message.includes("502") || message.includes("bad gateway") || message.includes("upstream") || message.includes("ETIMEDOUT") || message.includes("ECONNREFUSED") || message.includes("ECONNRESET")) {
     return new ServiceError("UPSTREAM_ERROR");
   }
-  return new ServiceError("INTERNAL_ERROR", message);
+  return new ServiceError("INTERNAL_ERROR");
 }

@@ -119,8 +119,12 @@ export async function safeFetch(rawUrl, options = {}, dependencies = {}) {
   catch { throw serviceError("INVALID_URL"); }
   if (!/^https?:$/.test(currentUrl.protocol)) throw serviceError("INVALID_URL");
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    await assertPublicHost(currentUrl.hostname, lookupFn);
-    const response = await fetchFn(currentUrl, { ...options, redirect: "manual" });
+    if (!/^https?:$/.test(currentUrl.protocol)) throw serviceError("INVALID_URL");
+    if (options.signal?.aborted) throw options.signal.reason;
+    const wait = (promise) => options.signal ? waitForPromiseWithSignal(promise, options.signal) : promise;
+    await wait(assertPublicHost(currentUrl.hostname, lookupFn));
+    if (options.signal?.aborted) throw options.signal.reason;
+    const response = await wait(fetchFn(currentUrl, { ...options, redirect: "manual" }));
     if (![301, 302, 303, 307, 308].includes(response.status)) return { response, finalUrl: currentUrl.toString() };
     const location = response.headers.get("location");
     if (!location) return { response, finalUrl: currentUrl.toString() };
@@ -200,24 +204,33 @@ export function isValidImageBuffer(buffer) {
   return prefix.startsWith("<svg") || (prefix.startsWith("<?xml") && prefix.includes("<svg"));
 }
 
-async function readBodyWithLimit(response, maxBytes) {
+async function readBodyWithLimit(response, maxBytes, signal) {
   const contentLength = Number(response.headers.get("content-length"));
-  if (contentLength && contentLength > maxBytes) throw new Error("Upstream response is too large");
+  if (contentLength && contentLength > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw new ServiceError("UPSTREAM_ERROR");
+  }
   if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
+  const onAbort = () => { void reader.cancel(signal.reason).catch(() => {}); };
+  signal?.addEventListener('abort', onAbort, { once: true });
   try {
     while (true) {
+      if (signal?.aborted) throw signal.reason;
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > maxBytes) throw new Error("Upstream response is too large");
+      if (total > maxBytes) throw new ServiceError("UPSTREAM_ERROR");
       chunks.push(Buffer.from(value));
     }
   } catch (error) {
     await reader.cancel().catch(() => {});
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    reader.releaseLock();
   }
   return Buffer.concat(chunks, total);
 }
@@ -244,7 +257,10 @@ function remainingMs(deadline, capMs) {
 
 function waitForPromiseWithSignal(promise, signal) {
   assertAbortSignal(signal);
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) {
+    void Promise.resolve(promise).catch(() => {});
+    return Promise.reject(signal.reason || new ServiceError("UPSTREAM_TIMEOUT"));
+  }
 
   return new Promise((resolve, reject) => {
     const onAbort = () => {
@@ -267,7 +283,7 @@ function waitForPromiseWithSignal(promise, signal) {
   });
 }
 
-async function fetchWithTimeout(url, { parentSignal, timeoutMs, headers }) {
+export async function fetchWithTimeout(url, { parentSignal, timeoutMs, headers, maxBytes }, dependencies = {}) {
   assertAbortSignal(parentSignal);
   const controller = new AbortController();
   const abortFromParent = () => controller.abort(parentSignal.reason || new Error("Aborted"));
@@ -275,7 +291,15 @@ async function fetchWithTimeout(url, { parentSignal, timeoutMs, headers }) {
   else parentSignal.addEventListener("abort", abortFromParent, { once: true });
   const timer = setTimeout(() => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")), timeoutMs);
   try {
-    return await safeFetch(url, { signal: controller.signal, headers });
+    const fetched = await safeFetch(url, { signal: controller.signal, headers }, dependencies);
+    if (!fetched.response.ok) {
+      await fetched.response.body?.cancel().catch(() => {});
+      throw new ServiceError([404, 410].includes(fetched.response.status) ? "ICON_NOT_FOUND" : "UPSTREAM_ERROR");
+    }
+    const buffer = await waitForPromiseWithSignal(
+      readBodyWithLimit(fetched.response, maxBytes, controller.signal), controller.signal,
+    );
+    return { ...fetched, buffer };
   } finally {
     clearTimeout(timer);
     parentSignal.removeEventListener("abort", abortFromParent);
@@ -289,30 +313,12 @@ const AGGREGATOR_BUILDERS = [
 ];
 
 async function fetchSingleFavicon(faviconUrl, timeoutMs, parentSignal) {
-  assertAbortSignal(parentSignal);
-  const controller = new AbortController();
-  const abortParent = () => controller.abort(parentSignal.reason || new Error("Aborted"));
-  if (parentSignal.aborted) abortParent();
-  else parentSignal.addEventListener("abort", abortParent, { once: true });
-  const timer = setTimeout(() => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")), timeoutMs);
-  try {
-    const { response, finalUrl } = await safeFetch(faviconUrl, {
-      signal: controller.signal,
-      headers: { "User-Agent": "favicon-api/1.0 (favicon fetcher; +https://github.com/VeteranBoLuo/favicon-api)" },
-    });
-    if (!response.ok) {
-      if (response.status === 404 || response.status === 410) {
-        throw new ServiceError("ICON_NOT_FOUND");
-      }
-      throw new ServiceError("UPSTREAM_ERROR");
-    }
-    const buffer = await readBodyWithLimit(response, MAX_FAVICON_SIZE);
-    if (!isValidImageBuffer(buffer)) throw new ServiceError("ICON_NOT_FOUND");
-    return { buffer, contentType: detectContentType(finalUrl, response.headers), finalUrl };
-  } finally {
-    clearTimeout(timer);
-    parentSignal.removeEventListener("abort", abortParent);
-  }
+  const { response, finalUrl, buffer } = await fetchWithTimeout(faviconUrl, {
+    parentSignal, timeoutMs, maxBytes: MAX_FAVICON_SIZE,
+    headers: { "User-Agent": "favicon-api/1.0 (favicon fetcher; +https://github.com/VeteranBoLuo/favicon-api)" },
+  });
+  if (!isValidImageBuffer(buffer)) throw new ServiceError("ICON_NOT_FOUND");
+  return { buffer, contentType: detectContentType(finalUrl, response.headers), finalUrl };
 }
 
 function delayedAttempt(delayMs, signal, factory) {
@@ -365,20 +371,11 @@ async function fetchDeclaredFavicon({
   const fetched = await fetchWithTimeout(originUrl, {
     parentSignal: signal,
     timeoutMs: remainingMs(deadline, HTML_TIMEOUT_MS),
+    maxBytes: MAX_HTML_SIZE,
     headers: { "User-Agent": "favicon-api/1.0", Accept: "text/html" },
   });
 
-  if (!fetched.response.ok) {
-    if (fetched.response.status === 404 || fetched.response.status === 410) {
-      throw new ServiceError("ICON_NOT_FOUND");
-    }
-    throw new ServiceError("UPSTREAM_ERROR");
-  }
-
-  const html = (await readBodyWithLimit(
-    fetched.response,
-    MAX_HTML_SIZE,
-  )).toString("utf8");
+  const html = fetched.buffer.toString("utf8");
   const declaredUrl = extractFaviconUrl(html, fetched.finalUrl);
   if (declaredUrl === attemptedRootUrl) {
     throw new ServiceError("ICON_NOT_FOUND");
@@ -489,7 +486,7 @@ export async function fetchHedged(pageUrl, hostname, options = {}) {
 
     let result;
     try {
-      result = await Promise.any(attempts);
+      result = await waitForPromiseWithSignal(Promise.any(attempts), signal);
     } catch (error) {
       throw pickAggregateError(error);
     }
@@ -502,13 +499,13 @@ export async function fetchHedged(pageUrl, hostname, options = {}) {
 }
 
 // ── 顺序兜底（功能开关关闭时使用） ────────────────────────
-async function fetchSequentialFallback(pageUrl, hostname) {
-  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+async function fetchSequentialFallback(pageUrl, hostname, { totalTimeoutMs = TOTAL_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + totalTimeoutMs;
   const controller = new AbortController();
   const signal = controller.signal;
   const totalTimer = setTimeout(
     () => controller.abort(new ServiceError("UPSTREAM_TIMEOUT")),
-    TOTAL_TIMEOUT_MS,
+    totalTimeoutMs,
   );
   const attemptedRootUrl = new URL("/favicon.ico", pageUrl).toString();
   const errors = [];
@@ -608,12 +605,17 @@ export async function getFavicon(rawUrl, dependencies = {}) {
 
   const fetchPromise = (async () => {
     let release = null;
+    const totalTimeoutMs = dependencies.totalTimeoutMs ?? TOTAL_TIMEOUT_MS;
+    const deadline = Date.now() + totalTimeoutMs;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new ServiceError(release ? 'UPSTREAM_TIMEOUT' : 'QUEUE_FULL')), totalTimeoutMs);
     try {
-      release = await requestLimiter.acquire();
+      release = await requestLimiter.acquire({ signal: controller.signal });
       runtimeMetrics.increment("externalFetchCount");
+      const options = { totalTimeoutMs: remainingMs(deadline, totalTimeoutMs) };
       const result = HEDGED_FETCH_ENABLED
-        ? await fetchHedged(url.toString(), url.hostname)
-        : await fetchSequentialFallback(url.toString(), url.hostname);
+        ? await (dependencies.fetchHedged || fetchHedged)(url.toString(), url.hostname, options)
+        : await fetchSequentialFallback(url.toString(), url.hostname, options);
 
       if (!result || !result.buffer) {
         const err = new ServiceError("ICON_NOT_FOUND");
@@ -644,6 +646,7 @@ export async function getFavicon(rawUrl, dependencies = {}) {
       else runtimeMetrics.increment("internalErrorCount");
       throw se;
     } finally {
+      clearTimeout(timer);
       release?.();
       inFlightOrigins.delete(originKey);
     }

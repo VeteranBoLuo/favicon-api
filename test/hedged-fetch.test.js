@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ServiceError } from "../src/error.js";
 import { fetchHedged, getCacheStats, getFavicon } from "../src/favicon.js";
+import { Limiter } from "../src/limiter.js";
 
 const IMAGE_RESULT = {
   buffer: Buffer.alloc(64, 1),
@@ -88,8 +89,7 @@ describe("hedged favicon fetch", () => {
       }),
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(started, ["root", "declared"]);
 
     const result = await resultPromise;
@@ -186,6 +186,13 @@ describe("hedged favicon fetch", () => {
 
     assert.ok(Date.now() - startedAt < 150);
   });
+
+  it('enforces the total deadline even if a source ignores cancellation', async () => {
+    await assert.rejects(() => fetchHedged('https://example.test/', 'example.test', createOptions({
+      totalTimeoutMs: 20,
+      fetchRoot: () => new Promise(() => {}),
+    })), { code: 'UPSTREAM_TIMEOUT' });
+  });
 });
 
 it("clears inFlight after the limiter rejects a full queue", async () => {
@@ -203,4 +210,20 @@ it("clears inFlight after the limiter rejects a full queue", async () => {
   );
 
   assert.equal(getCacheStats().inFlight, 0);
+});
+
+it('expires queued origins within the request budget and removes them from the limiter', async () => {
+  const limiter = new Limiter({ concurrency: 1, queueMax: 10 });
+  const release = await limiter.acquire();
+  let fetched = false;
+  try {
+    await assert.rejects(() => getFavicon('https://queue-deadline.example', {
+      limiter, totalTimeoutMs: 20,
+      fetchHedged: async () => { fetched = true; return IMAGE_RESULT; },
+    }), { code: 'QUEUE_FULL' });
+    assert.equal(fetched, false);
+    assert.equal(limiter.queued, 0);
+    assert.equal(getCacheStats().inFlight, 0);
+  } finally { release(); }
+  assert.equal(limiter.active, 0);
 });

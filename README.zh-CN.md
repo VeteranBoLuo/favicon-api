@@ -89,15 +89,21 @@ https://boluo66.top/favimg/?url=https%3A%2F%2Fgithub.com%2Fopenai
 | `Content-Type` | 检测到的图片类型 |
 | `Cache-Control` | 浏览器与 CDN 缓存策略 |
 | `ETag` | 基于内容生成，支持 `If-None-Match` |
-| `X-Favicon-Source` | 重定向或兜底后的最终来源 URL |
+| `X-Favicon-Source-Type` | 抓取来源或缓存命中 |
 
-失败时返回 JSON：`{ "error": "..." }`，状态码为 `400`、`403`、`404` 或 `502`。
+失败时返回 JSON：`{ "code": "DNS_ERROR", "retryable": true, "error": "..." }`，状态码为 `400`、`403`、`404`、`500`、`502`、`503` 或 `504`。图标获取失败不等同于网站不可用。
 
 ### `GET /health`
 
 ```json
 { "status": "ok" }
 ```
+
+### `GET /runtime`
+
+不缓存地返回队列占用、缓存计数、各抓取源成功数，以及独立的 DNS、超时、上游、内部错误和未找到计数。`/health` 仅表示进程存活。
+
+`FAVICON_TOTAL_TIMEOUT_MS` 共同约束排队与外部抓取，覆盖 DNS 和响应体读取。排队超时返回可重试的 `QUEUE_FULL`；网络和证书故障按上游错误分类。请求超时或其他来源先取得图标时，会取消剩余抓取。
 
 ### `GET /stats`
 

@@ -89,15 +89,21 @@ Successful responses contain the image binary and these useful headers:
 | `Content-Type` | Detected image type |
 | `Cache-Control` | Browser and CDN cache policy |
 | `ETag` | Content-based validator; supports `If-None-Match` |
-| `X-Favicon-Source` | Final source URL after redirects or fallback |
+| `X-Favicon-Source-Type` | Discovery source or cache hit |
 
-Errors use JSON: `{ "error": "..." }` with `400`, `403`, `404`, or `502` status codes.
+Errors use JSON: `{ "code": "DNS_ERROR", "retryable": true, "error": "..." }` with `400`, `403`, `404`, `500`, `502`, `503`, or `504` status codes. A failed icon lookup does not establish that the website is unavailable.
 
 ### `GET /health`
 
 ```json
 { "status": "ok" }
 ```
+
+### `GET /runtime`
+
+Returns uncached queue occupancy, cache counters, per-source success counts, and separate DNS, timeout, upstream, internal-error and not-found counters. `/health` reports process liveness only.
+
+`FAVICON_TOTAL_TIMEOUT_MS` bounds queue waiting and external discovery together, including DNS and response-body reads. Expired queue waits return retryable `QUEUE_FULL`; network and certificate failures remain upstream errors. Timed-out requests and losing discovery attempts are cancelled.
 
 ### `GET /stats`
 

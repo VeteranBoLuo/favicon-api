@@ -7,6 +7,7 @@ import {
   isPrivateAddress,
   isValidImageBuffer,
   safeFetch,
+  fetchWithTimeout,
 } from "../src/favicon.js";
 
 test("identifies private and reserved addresses", () => {
@@ -52,6 +53,18 @@ test("rejects non-HTTP schemes", async () => {
   await assert.rejects(() => safeFetch("file:///etc/passwd"), { code: "INVALID_URL" });
 });
 
+test('rejects a non-HTTP redirect before attempting its connection', async () => {
+  let calls = 0;
+  await assert.rejects(() => safeFetch('https://example.test/', {}, {
+    lookupFn: async () => [{ address: '1.1.1.1', family: 4 }],
+    fetchFn: async () => {
+      calls++;
+      return new Response(null, { status: 302, headers: { location: 'ftp://example.test/file' } });
+    },
+  }), { code: 'INVALID_URL' });
+  assert.equal(calls, 1);
+});
+
 test("ignores embedded data icons and falls back to favicon.ico", () => {
   const html = '<link rel="icon" href="data:image/png;base64,abc">';
   assert.equal(
@@ -78,4 +91,48 @@ test("validates common image signatures and rejects 1x1 PNG", () => {
 test("ETags are stable and content-based", () => {
   assert.equal(generateETag(Buffer.from("same")), generateETag(Buffer.from("same")));
   assert.notEqual(generateETag(Buffer.from("same")), generateETag(Buffer.from("different")));
+});
+
+test('DNS checks obey cancellation before starting any connection', async () => {
+  let connected = false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('deadline')), 15);
+  try {
+    await assert.rejects(() => safeFetch('https://example.test/', { signal: controller.signal }, {
+      lookupFn: () => new Promise(() => {}),
+      fetchFn: async () => { connected = true; return new Response(''); },
+    }), /deadline/);
+    assert.equal(connected, false);
+  } finally { clearTimeout(timer); }
+});
+
+test('HTML body reads remain under the timeout and cancel an unfinished stream', async () => {
+  let cancelled = false;
+  const body = new ReadableStream({ cancel() { cancelled = true; } });
+  await assert.rejects(() => fetchWithTimeout('https://example.test/', {
+    parentSignal: new AbortController().signal, timeoutMs: 20, maxBytes: 1024,
+  }, {
+    lookupFn: async () => [{ address: '1.1.1.1', family: 4 }],
+    fetchFn: async () => new Response(body),
+  }), { code: 'UPSTREAM_TIMEOUT' });
+  assert.equal(cancelled, true);
+});
+
+test('a winning icon cancels a losing HTML body after its headers arrived', async () => {
+  let cancelled = false;
+  const parent = new AbortController();
+  let bodyStarted;
+  const started = new Promise(resolve => { bodyStarted = resolve; });
+  const body = new ReadableStream({ start() { bodyStarted(); }, cancel() { cancelled = true; } });
+  const pending = fetchWithTimeout('https://example.test/', {
+    parentSignal: parent.signal, timeoutMs: 1000, maxBytes: 1024,
+  }, {
+    lookupFn: async () => [{ address: '1.1.1.1', family: 4 }],
+    fetchFn: async () => new Response(body),
+  });
+  await started;
+  await new Promise(resolve => setImmediate(resolve));
+  parent.abort(new Error('another icon won'));
+  await assert.rejects(() => pending, /another icon won/);
+  assert.equal(cancelled, true);
 });
